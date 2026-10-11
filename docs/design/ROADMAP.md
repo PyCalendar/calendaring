@@ -212,7 +212,8 @@ prototyping.
 - **Estimated effort:** 20 hours
 - **Dependencies:** 0.1, 0.2, 0.3
 - **Deliverable:** a documented API specification, peer-reviewed —
-  [API_DESIGN.md](API_DESIGN.md) (drafted 2026-10-08, reviewed by the author; peer review not started)
+  [API_DESIGN.md](API_DESIGN.md) (drafted 2026-10-08, reviewed by the author; peer review in progress)
+- **Status**: draft PR https://github.com/pycalendar/calendaring/pull/5 - video meeting with Nicco held 2026-10-12, Sashank's review comments answered
 
 The API should feel familiar to caldav users without being a CalDAV API in
 disguise. The test of the design is not "does it fit CalDAV" but "does it fit
@@ -299,6 +300,7 @@ Enforcement is not optional; it is the whole point of the item.
 - **Priority:** High
 - **Estimated effort:** 8 hours
 - **Dependencies:** 1.1
+- **Status**: draft PR https://github.com/pycalendar/calendaring/pull/6 - stacked on PR#5
 
 Note: `plann` delegates credential storage to this library — its roadmap item 1.3
 is deliberately the command-line half only.  See
