@@ -120,7 +120,11 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 # Treat warnings as errors - tests should run clean (roadmap 1.3 demands it too)
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # A test server configured with ssl_verify_cert: false (caldav's Zimbra)
+    "ignore:Unverified HTTPS request:Warning",
+]
 norecursedirs = ["prototypes", "docs", "build"]
 # The async tests need no marker, so the generated sync copy carries none.
 asyncio_mode = "auto"
