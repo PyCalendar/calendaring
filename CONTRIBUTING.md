@@ -40,10 +40,10 @@ caldav's test helper is told, so that port must be free.
 The CalDAV conformance suite and the readable stories in
 `tests/test_scenarios.py` (which also run on the files and memory
 backends) can also run against the docker and external servers of
-caldav's own test framework.  That framework is not in caldav's wheel, so
-it needs a caldav source checkout: an editable caldav install is found by
-itself, otherwise set `CALDAV_SOURCE`.  The servers are not started for
-you; start them in the checkout first:
+caldav's own test framework, `caldav.testing`.  That needs a caldav
+from after [caldav issue 817](https://github.com/python-caldav/caldav/issues/817)
+was fixed.  The servers are not started for you; start them in a caldav
+checkout first:
 
 ```
 (cd ~/caldav/tests/docker-test-servers/baikal && ./start.sh)
@@ -52,12 +52,10 @@ pytest --caldav-servers=Baikal -k Baikal
 
 `--caldav-servers` takes a comma-separated list of names, and a named
 server that is not running fails its tests.  `all` takes every server
-caldav knows of: the docker servers, the external ones in the checkout's
-`tests/caldav_test_servers.yaml` (or `~/.config/caldav/test_servers.yaml`),
-and the sections of your caldav configuration marked `test_allowed`.
-caldav itself reads only the first of those sources it finds, so the
-conftest adds the `test_allowed` sections
-([caldav issue 817](https://github.com/python-caldav/caldav/issues/817)).
+caldav knows of: the docker servers, the external ones in
+`~/.config/caldav/test_servers.yaml` (and in `tests/caldav_test_servers.yaml`
+when caldav is installed from a checkout), and the sections of your
+caldav configuration marked `test_allowed`.
 Under `all`, a server that is not running is skipped.  Without docker,
 caldav lists a docker server only while it is running.  For these
 servers, the `PYTHON_CALDAV_TEST_*` switches and caldav's per-server

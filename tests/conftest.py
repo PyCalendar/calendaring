@@ -4,26 +4,17 @@ Embedded Xandikos and Radicale are started once per session, and skipped
 when they are not installed (``pip install -e .[caldav,test-servers]``).
 
 ``--caldav-servers=Baikal,Nextcloud`` (or ``all``) adds the docker and
-external servers of caldav's own test framework.  That framework is not
-in caldav's wheel, so it is loaded from a caldav source checkout:
-``$CALDAV_SOURCE``, or the one an editable caldav install points at.
-Servers are never started here: start them in the checkout
+external servers of caldav's own test framework, ``caldav.testing``.
+Servers are never started here: start them in a caldav checkout
 (``tests/docker-test-servers/<name>/start.sh``) before the run.
 """
 
 from __future__ import annotations
 
-import contextlib
-import importlib.util
-import os
 import socket
-import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
-from types import ModuleType
 from typing import Any
-from urllib.parse import urlsplit
 
 import pytest
 
@@ -71,42 +62,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--caldav-servers",
         default="",
         metavar="NAMES",
-        help="also test against caldav's test servers: comma-separated names (Baikal,Nextcloud,...) "
-        "or 'all'; needs a caldav source checkout ($CALDAV_SOURCE)",
+        help="also test against caldav's test servers: comma-separated names (Baikal,Nextcloud,...) or 'all'",
     )
-
-
-def caldav_checkout() -> Path:
-    if "CALDAV_SOURCE" in os.environ:
-        return Path(os.environ["CALDAV_SOURCE"]).expanduser()
-    import caldav
-
-    return Path(caldav.__file__).parent.parent
-
-
-def caldav_test_framework() -> ModuleType:
-    """caldav's ``tests/test_servers`` package, imported under a name that cannot clash with ours.
-
-    A path import, until caldav ships it: https://github.com/python-caldav/caldav/issues/817
-    """
-    name = "caldav_test_servers"
-    if name in sys.modules:
-        return sys.modules[name]
-    checkout = caldav_checkout()
-    package = checkout / "tests" / "test_servers"
-    if not (package / "__init__.py").exists():
-        raise pytest.UsageError(
-            f"--caldav-servers needs a caldav source checkout; none at {checkout} (set CALDAV_SOURCE)"
-        )
-    spec = importlib.util.spec_from_file_location(
-        name, package / "__init__.py", submodule_search_locations=[str(package)]
-    )
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def caldav_test_servers(config: pytest.Config) -> dict[str, Any]:
@@ -114,21 +71,13 @@ def caldav_test_servers(config: pytest.Config) -> dict[str, Any]:
     wanted = config.getoption("--caldav-servers")
     if not wanted:
         return {}
-    framework = caldav_test_framework()
-    # caldav reads tests/caldav_test_servers.yaml relative to the working directory.
-    with contextlib.chdir(caldav_checkout()):
-        registry = framework.get_registry()
-    # caldav takes the first config source it finds; add the test_allowed sections of the
-    # caldav configuration even when a test-server file exists (caldav issue 817).
-    from caldav.config import get_all_test_servers
-
-    allowed = get_all_test_servers()
-    known = {s.name.lower() for s in registry.all_servers()}
-    registry.load_from_config(
-        {n: {"type": "external", "enabled": True, **c} for n, c in allowed.items() if n.lower() not in known}
-    )
-    registered = registry.enabled_servers()
-    available = {s.name: s for s in registered if not isinstance(s, framework.EmbeddedTestServer)}
+    try:
+        from caldav.testing.base import EmbeddedTestServer
+        from caldav.testing.registry import get_registry
+    except ImportError as e:
+        raise pytest.UsageError(f"--caldav-servers needs a caldav with the test-server registry: {e}") from e
+    registered = get_registry().enabled_servers()
+    available = {s.name: s for s in registered if not isinstance(s, EmbeddedTestServer)}
     if wanted == "all":
         return available
     names = [n.strip() for n in wanted.split(",") if n.strip()]
@@ -167,17 +116,6 @@ class CalDAVServer:
     options: dict[str, Any]
 
 
-def reachable(url: str) -> bool:
-    """Whether anything answers at the URL's host and port; caldav takes an external server's word for it."""
-    parts = urlsplit(url)
-    port = parts.port or (443 if parts.scheme == "https" else 80)
-    try:
-        socket.create_connection((parts.hostname, port), timeout=5).close()
-    except OSError:
-        return False
-    return True
-
-
 def running_caldav_server(request: pytest.FixtureRequest, name: str) -> CalDAVServer:
     """The server by name; a docker or external one is never started, only checked to be up."""
     if name in EMBEDDED:
@@ -185,8 +123,7 @@ def running_caldav_server(request: pytest.FixtureRequest, name: str) -> CalDAVSe
     else:
         server = request.config.stash[SERVERS][name]
         server.claim()  # waits while a caldav test run is using the same server
-        # An external server without a URL gets one from its auto-connect hints, in caldav.
-        if not (server.is_accessible() and (not server.url or reachable(server.url))):
+        if not server.is_accessible():
             message = f"{name} is not running at {server.url}; start it from the caldav checkout first"
             if request.config.getoption("--caldav-servers") == "all":
                 pytest.skip(message)
