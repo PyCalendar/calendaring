@@ -21,7 +21,7 @@ from urllib.parse import quote, unquote
 import icalendar
 from icalendar_searcher import Searcher
 
-from .._caldav_features import backend_capabilities, collection_capabilities
+from .._caldav_features import backend_capabilities, collection_capabilities, stored_components
 from .._caldav_io import Calendar
 from ..capabilities import Feature
 from ..errors import (
@@ -249,9 +249,10 @@ class CalDAVBackend(Backend):
         return cls(DAV(url, **options), id=backend_id, loss=loss, verify=verify)
 
     def _wrap(self, calendar: Calendar) -> CalDAVCollection:
-        components = frozenset(
+        listed = frozenset(
             Component(c) for c in self._dav.supported_components(calendar) if c in {k.value for k in Component}
         )
+        components = stored_components(self._dav.client.features, listed)
         return self.collection_class(self, calendar, name=self._dav.display_name(calendar), components=components)
 
     def collections(self) -> list[Collection]:
