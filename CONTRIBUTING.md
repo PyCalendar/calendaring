@@ -56,12 +56,28 @@ caldav knows of: the docker servers, the external ones in
 `~/.config/caldav/test_servers.yaml` (and in `tests/caldav_test_servers.yaml`
 when caldav is installed from a checkout), and the sections of your
 caldav configuration marked `test_allowed`.
+`--caldav-servers-config=PATH` adds the servers of another such yaml
+file, and its entries win over those caldav found itself.  Give both
+options with `=`: with a space, pytest takes the value for a test path,
+moves its root directory there, never loads `tests/conftest.py` and
+stops with "unrecognized arguments".
 Under `all`, a server that is not running is skipped.  Without docker,
 caldav lists a docker server only while it is running.  For these
 servers, the `PYTHON_CALDAV_TEST_*` switches and caldav's per-server
 locks apply, so a caldav test run on the same server is waited for rather
 than clobbered; the embedded Xandikos and Radicale always run, and take
 no lock.
+
+A run on every server takes hours, most of them on the slowest
+servers.  Run the servers in parallel, spread over the workers, one
+server per worker at a time:
+
+```
+pytest --caldav-servers=all -n 12 --dist loadgroup
+```
+
+`--dist loadgroup` is what keeps a server's tests together; plain `-n`
+spreads them, and two workers then fight over one server.
 
 ## Sync and async code
 

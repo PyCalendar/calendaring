@@ -42,6 +42,7 @@ dev = [
   "calendaring[caldav,test-servers]",
   "pytest>=8.0",
   "pytest-asyncio>=1.0",
+  "pytest-xdist>=3.5",
   "unasync==0.6.0",
   "ruff==0.17.0",
   "mypy==2.4.0",

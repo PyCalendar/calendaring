@@ -14,6 +14,7 @@ from __future__ import annotations
 import socket
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -64,6 +65,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         metavar="NAMES",
         help="also test against caldav's test servers: comma-separated names (Baikal,Nextcloud,...) or 'all'",
     )
+    parser.addoption(
+        "--caldav-servers-config",
+        default=None,
+        metavar="PATH",
+        help="a caldav test-server yaml to add to the servers caldav finds itself; it wins on a name clash",
+    )
 
 
 def caldav_test_servers(config: pytest.Config) -> dict[str, Any]:
@@ -76,7 +83,21 @@ def caldav_test_servers(config: pytest.Config) -> dict[str, Any]:
         from caldav.testing.registry import get_registry
     except ImportError as e:
         raise pytest.UsageError(f"--caldav-servers needs a caldav with the test-server registry: {e}") from e
-    registered = get_registry().enabled_servers()
+    registry = get_registry()
+    if path := config.getoption("--caldav-servers-config"):
+        from caldav.testing.config_loader import load_test_server_config
+
+        # caldav falls back to its default sources when the file is missing
+        if not Path(path).is_file():
+            raise pytest.UsageError(f"--caldav-servers-config: no file {path}")
+        extra = load_test_server_config(path)
+        # The registry keeps a server it already has and ignores the file's entry
+        known = {s.name.lower(): s.name for s in registry.all_servers()}
+        for name in extra:
+            if name.lower() in known:
+                registry.unregister(known[name.lower()])
+        registry.load_from_config(extra)
+    registered = registry.enabled_servers()
     available = {s.name: s for s in registered if not isinstance(s, EmbeddedTestServer)}
     if wanted == "all":
         return available
@@ -105,6 +126,26 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Every test taking ``caldav_server`` runs once per server, with the server's name as its id."""
     if "caldav_server" in metafunc.fixturenames:
         metafunc.parametrize("caldav_server", caldav_server_names(metafunc.config), indirect=True, scope="session")
+
+
+@pytest.hookimpl(tryfirst=True)  # before xdist reads the groups
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Under ``pytest -n N --dist loadgroup``, keep each server's tests on one worker.
+
+    A server then has one connection and one session lock, and the servers run in parallel;
+    the slowest server sets the pace instead of the sum of them all.
+    """
+    if not config.pluginmanager.hasplugin("xdist"):
+        return
+    servers = set(caldav_server_names(config))
+    for item in items:
+        params = getattr(item, "callspec", None)
+        for name in (params.params.get(key) for key in ("caldav_server", "where")) if params else ():
+            if name in servers:
+                item.add_marker(pytest.mark.xdist_group(name))
+        # Radicale always listens on 5232, and stop() shuts down whichever one answers there
+        if "radicale_server" in getattr(item, "fixturenames", ()):
+            item.add_marker(pytest.mark.xdist_group("Radicale"))
 
 
 @dataclass
