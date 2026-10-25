@@ -128,9 +128,7 @@ def test_time_range_is_not_sent_where_filtered_searches_lag_behind_writes() -> N
     assert collection_capabilities(lagging, ALL).details(Feature.SEARCH_TIME_RANGE) == {"components": []}
     # Bedework lags in plain listings too: filtering on the client would not help, so the range is still sent
     everywhere = features({"search": {"support": "full"}, "search-cache": {"behaviour": "delay", "delay": 3}})
-    assert collection_capabilities(everywhere, ALL).details(Feature.SEARCH_TIME_RANGE) == {
-        "components": ["VEVENT"]
-    }
+    assert collection_capabilities(everywhere, ALL).details(Feature.SEARCH_TIME_RANGE) == {"components": ["VEVENT"]}
 
 
 def test_a_calendar_does_not_hold_what_the_server_refuses_to_store() -> None:

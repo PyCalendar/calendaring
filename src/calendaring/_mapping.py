@@ -10,6 +10,9 @@ overrides ``_plan_losses`` on its collection.
 from __future__ import annotations
 
 import copy
+import functools
+import hashlib
+import zoneinfo
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time
 from typing import Any
@@ -250,6 +253,14 @@ def _comparable(component: icalendar.Component, name: str) -> list[Any]:
     """
     if name == "CATEGORIES":
         return sorted({str(c) for value in _values(component, name) for c in getattr(value, "cats", [value])})
+    if name in {"RDATE", "EXDATE"}:  # a list of values, however it is split over lines
+        return sorted(
+            {
+                (n, params, one)
+                for n, params, value in map(_without_defaults, property_lines(component, name))
+                for one in str(value).split(",")
+            }
+        )
     if name in INSTANTS and not isinstance(component.get(name), list) and not _recurs(component):
         value = component.decoded(name)
         if isinstance(value, datetime) and value.tzinfo is not None:
@@ -268,12 +279,28 @@ def _without_defaults(line: bytes) -> tuple[Any, ...]:
     except ValueError:  # icalendar's own lines parse, so this one is a server's: compared verbatim
         return line.decode(), (), ""
     kept = sorted(
-        (key.upper(), tuple(sorted(str(v) for v in values)))
+        (key.upper(), tuple(sorted(_zone(str(v)) if key.upper() == "TZID" else str(v) for v in values)))
         for key, raw in params.items()
         for values in [raw if isinstance(raw, list) else [raw]]
         if not (len(values) == 1 and PARAMETER_DEFAULTS.get(key.upper()) == str(values[0]).upper())
     )
     return name.upper(), tuple(kept), value
+
+
+@functools.cache
+def _zone(tzid: str) -> str:
+    """A time zone by how it behaves, so that one tzdata renamed into another (Europe/Oslo, now a link to Berlin) compares equal.
+
+    The UTC offset at the start of every month from 1970 on: tzdata merges
+    zones only where they agree from 1970, and Europe/Sofia, an hour ahead of
+    Berlin all year, is not Berlin.  A zone this machine does not know is its name.
+    """
+    try:
+        zone = zoneinfo.ZoneInfo(tzid)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        return tzid
+    offsets = (zone.utcoffset(datetime(year, month, 1)) for year in range(1970, 2041) for month in range(1, 13))
+    return "zone:" + hashlib.sha1(repr(list(offsets)).encode()).hexdigest()
 
 
 def _recurs(component: icalendar.Component) -> bool:

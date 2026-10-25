@@ -116,3 +116,28 @@ def test_a_loss_names_only_the_alarms_that_were_not_kept() -> None:
     assert "AUDIO" not in str(replaced.sent)
     assert "server default" in str(replaced.stored)
     assert "AUDIO" not in str(replaced.stored)
+
+
+def test_a_list_of_dates_is_the_same_however_it_is_split() -> None:
+    # Bedework and Cyrus split RDATE:a,b into one line per date
+    sent = calendar("DTSTART;VALUE=DATE:20261105", "RDATE;VALUE=DATE:20261112,20261119")
+    split = calendar("DTSTART;VALUE=DATE:20261105", "RDATE;VALUE=DATE:20261119", "RDATE;VALUE=DATE:20261112")
+    assert names(sent, split) == []
+    assert names(sent, calendar("DTSTART;VALUE=DATE:20261105", "RDATE;VALUE=DATE:20261112")) == ["RDATE"]
+    assert names(calendar("EXDATE:20261112T090000Z,20261119T090000Z"), calendar("EXDATE:20261119T090000Z")) == [
+        "EXDATE"
+    ]
+
+
+def test_a_zone_renamed_to_one_that_behaves_the_same_is_no_difference() -> None:
+    """gmx stores Europe/Oslo as Europe/Berlin, which tzdata has defined as one zone since 2022b."""
+    sent = calendar("DTSTART;TZID=Europe/Oslo:20261020T100000", "RRULE:FREQ=WEEKLY;COUNT=30")
+    assert names(sent, calendar("DTSTART;TZID=Europe/Berlin:20261020T100000", "RRULE:FREQ=WEEKLY;COUNT=30")) == []
+
+
+def test_a_zone_renamed_to_one_that_behaves_differently_is_a_difference() -> None:
+    """Sofia is an hour ahead of Berlin all year: the same wall-clock time would be another instant."""
+    sent = calendar("DTSTART;TZID=Europe/Sofia:20261020T100000", "RRULE:FREQ=WEEKLY;COUNT=30")
+    assert names(sent, calendar("DTSTART;TZID=Europe/Berlin:20261020T100000", "RRULE:FREQ=WEEKLY;COUNT=30")) == [
+        "DTSTART"
+    ]

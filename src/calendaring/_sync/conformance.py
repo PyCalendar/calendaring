@@ -1178,7 +1178,10 @@ class SyncConformance:
             "start-time": (read.start, at(3, 9)),
             "end": (read.end, at(3, 11)),
         }
-        expected |= {"users": (read.users, users), "comment": (read.comment, "first draft\nwith figures")}
+        expected |= {
+            "users": (tuple(sorted(read.users)), tuple(sorted(users))),
+            "comment": (read.comment, "first draft\nwith figures"),
+        }
         for name, (got, sent) in expected.items():
             if name in lost:
                 assert got in (None, ()), f"{name} is declared lost, yet read back as {got!r}: never invent it"
@@ -1388,7 +1391,7 @@ class SyncConformance:
             assert info.value.feature == Feature.CREATE_COLLECTION
             assert [c.id for c in backend.collections()] == before
             return
-        deletable = backend.capabilities.supports(Feature.DELETE_COLLECTION)
+        deletable = backend.capabilities.level(Feature.DELETE_COLLECTION) is not Support.UNSUPPORTED
         # Without delete-collection, only the first run on a backend makes it: later ones find it left there.
         made = None if deletable else self.left_behind(backend, "conformance-new")
         lossy = backend.capabilities.level(Feature.CREATE_COLLECTION) is Support.LOSSY
