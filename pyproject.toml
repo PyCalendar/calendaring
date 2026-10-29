@@ -127,6 +127,9 @@ filterwarnings = [
     "ignore:Unverified HTTPS request:Warning",
 ]
 norecursedirs = ["prototypes", "docs", "build"]
+markers = [
+    "checks_refusal: a scenario story that, where no collection for its kind can be made, checks the refusal in one of another kind",
+]
 # The async tests need no marker, so the generated sync copy carries none.
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

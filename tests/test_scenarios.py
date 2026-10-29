@@ -2,11 +2,15 @@
 
 These tests are optimized for readability: one story each.
 
-Those tests are slightly redundant, the conformance suites should
-ensure in details that everything works as intended.
+These tests are slightly redundant, the conformance suites should
+ensure in detail that everything works as intended.
 
 When the backend cannot support the scenario, the test asserts that
-this is properly flagged (``UnsupportedError`` or ``LossyWriteError``)
+this is properly flagged (``UnsupportedError`` or ``LossyWriteError``).
+
+Events, tasks and journals are kept apart, as many servers and most
+users keep them: a calendar, a task list and a journal.  Where a backend
+has only one collection, all three are that one.
 
 Add caldav's docker servers with ``--caldav-servers=Baikal,Nextcloud``
 (see ``conftest.py``).
@@ -16,7 +20,7 @@ Add caldav's docker servers with ``--caldav-servers=Baikal,Nextcloud``
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
@@ -75,10 +79,18 @@ def open_backend(where: str, directory: Path, request: pytest.FixtureRequest) ->
     return Backend.open(server.url, kind="caldav", **server.options)
 
 
-## TODO: hard-coded dates does not work, quite some systems will suddenly stop working when 2026 is beyond the event horizon
-def at(day: int, hour: int) -> datetime:
-    """A time in November 2026, when all these stories take place."""
-    return datetime(2026, 11, day, hour, tzinfo=UTC)
+# Next week: a fixed date would one day be past every server's time range.
+TODAY = datetime.now(UTC).date()
+MONDAY = TODAY + timedelta(days=7 - TODAY.weekday())
+
+
+def day(n: int) -> date:
+    """A day of the week these stories take place in: 0 is its Monday."""
+    return MONDAY + timedelta(days=n)
+
+
+def at(n: int, hour: int) -> datetime:
+    return datetime.combine(day(n), time(hour), tzinfo=UTC)
 
 
 def summaries(items: Sequence[SyncItem]) -> list[str]:
@@ -97,11 +109,14 @@ def backend(where: str, tmp_path: Path, request: pytest.FixtureRequest) -> Itera
 
 
 def fresh_calendar(
-    backend: Backend,
-    name: str,
-    components: tuple[Component, ...] = (Component.EVENT, Component.TASK, Component.JOURNAL),
+    backend: Backend, request: pytest.FixtureRequest, kind: Component, label: str = ""
 ) -> Iterator[Collection]:
-    """A new calendar where the backend can make one; else the one it has, as new as the backend."""
+    """A new collection for ``kind`` where the backend can make one; else the one it has, as new as the backend.
+
+    Where the backend can make none for ``kind``, a story marked ``checks_refusal`` gets one for another
+    kind, and checks the refusal there; any other story is skipped.
+    """
+    name = f"scenario {request.node.originalname} ({kind.value}{label})"
     on_a_server = backend.kind == "caldav"
     if backend.capabilities.level(Feature.CREATE_COLLECTION) is Support.UNSUPPORTED:
         if on_a_server:
@@ -110,18 +125,16 @@ def fresh_calendar(
         return
     if on_a_server and backend.capabilities.level(Feature.DELETE_COLLECTION) is Support.UNSUPPORTED:
         pytest.skip("the server cannot delete calendars, so every story would leave one behind")
-    try:
-        calendar = backend.create_collection(name, components=components)
-    except UnsupportedError:
-        # A tracker asked for an events-only calendar refuses: it would hold none of it.
-        pytest.skip("the backend cannot make a calendar holding any of what was asked for")
-    # Journals are optional; the journal story checks their refusal.
-    missing = set(components) - calendar.components - {Component.JOURNAL}
-    if on_a_server and missing:
-        calendar.delete_collection()
-        pytest.skip(
-            f"the server made a calendar without {sorted(c.value for c in missing)} (Bedework makes events-only ones)"
-        )
+    # A tracker makes no calendar for events, Bedework none for tasks, and many servers none for journals.
+    others = [c for c in Component if c is not kind] if request.node.get_closest_marker("checks_refusal") else []
+    for asked in [kind, *others]:
+        try:
+            calendar = backend.create_collection(name, components=(asked,))
+            break
+        except UnsupportedError:
+            continue
+    else:
+        pytest.skip(f"the backend cannot make a collection for {kind.value}")
     yield calendar
     if backend.capabilities.level(Feature.DELETE_COLLECTION) is not Support.UNSUPPORTED:
         calendar.delete_collection()
@@ -129,30 +142,35 @@ def fresh_calendar(
 
 @pytest.fixture
 def calendar(backend: Backend, request: pytest.FixtureRequest) -> Iterator[Collection]:
-    """A calendar for the test alone, holding nothing yet."""
-    yield from fresh_calendar(backend, f"scenario {request.node.originalname}")
+    """A calendar for events, for the test alone, holding nothing yet."""
+    yield from fresh_calendar(backend, request, Component.EVENT)
 
 
 @pytest.fixture
-def events_calendar(backend: Backend, request: pytest.FixtureRequest) -> Iterator[Collection]:
-    """A calendar made for events only, as many users keep one beside their task list."""
-    if backend.capabilities.level(Feature.CREATE_COLLECTION) is Support.UNSUPPORTED:
-        pytest.skip("the backend has one calendar, and makes no others")
-    yield from fresh_calendar(backend, f"scenario {request.node.originalname}", components=(Component.EVENT,))
+def tasklist(backend: Backend, request: pytest.FixtureRequest) -> Iterator[Collection]:
+    """A task list for the test alone, holding nothing yet."""
+    yield from fresh_calendar(backend, request, Component.TASK)
 
 
 @pytest.fixture
-def other_calendar(
+def journal(backend: Backend, request: pytest.FixtureRequest) -> Iterator[Collection]:
+    """A journal for the test alone, holding nothing yet."""
+    yield from fresh_calendar(backend, request, Component.JOURNAL)
+
+
+@pytest.fixture
+def other_tasklist(
     backend: Backend, where: str, tmp_path: Path, request: pytest.FixtureRequest
 ) -> Iterator[Collection]:
-    """A second calendar: on the same backend, or on another one of the same kind if it holds only one."""
+    """A second task list: on the same backend, or on another one of the same kind if it holds only one."""
     if backend.capabilities.level(Feature.CREATE_COLLECTION) is not Support.UNSUPPORTED:
-        yield from fresh_calendar(backend, f"scenario {request.node.originalname} (other)")
+        yield from fresh_calendar(backend, request, Component.TASK, ", other")
         return
     with open_backend(where, tmp_path / "other", request) as other:
         yield other.collections()[0]
 
 
+@pytest.mark.checks_refusal
 def test_a_new_calendar_is_listed_and_can_be_renamed(backend: Backend, calendar: Collection) -> None:
     ## The calendar fixture is a freshly made collection
     ## backend.collections() should list up all collections, including calendar
@@ -173,6 +191,7 @@ def test_a_new_calendar_is_listed_and_can_be_renamed(backend: Backend, calendar:
     assert backend.collection(calendar.id).name == "Renamed"
 
 
+@pytest.mark.checks_refusal
 def test_an_event_is_added_found_changed_and_deleted(calendar: Collection) -> None:
 
     ## Assert that we get an appropriate error if trying to insert an event
@@ -180,15 +199,15 @@ def test_an_event_is_added_found_changed_and_deleted(calendar: Collection) -> No
     if unsupported(calendar, Feature.COMPONENT_EVENT):
         # A task tracker holds no events.
         with pytest.raises(UnsupportedError):
-            calendar.add_event(summary="Planning meeting", start=at(2, 9), end=at(2, 10))
+            calendar.add_event(summary="Planning meeting", start=at(0, 9), end=at(0, 10))
         assert calendar.search() == []
         return
 
     ## Adding an event into the collection
-    meeting = calendar.add_event(summary="Planning meeting", start=at(2, 9), end=at(2, 10))
+    meeting = calendar.add_event(summary="Planning meeting", start=at(0, 9), end=at(0, 10))
 
     ## Do a date search for events
-    found = calendar.events(start=at(2, 0), end=at(3, 0))
+    found = calendar.events(start=at(0, 0), end=at(1, 0))
     ## Assert event is found
     assert [e.uid for e in found] == [meeting.uid]
 
@@ -203,63 +222,71 @@ def test_an_event_is_added_found_changed_and_deleted(calendar: Collection) -> No
     assert calendar.events() == []
 
 
-def test_a_task_is_completed_and_uncompleted(calendar: Collection) -> None:
+@pytest.mark.checks_refusal
+def test_a_task_is_completed_and_uncompleted(tasklist: Collection) -> None:
     """The plann use case: add a task, tick it off, and change one's mind."""
 
-    ## TODO: no checks that the collection support tasks?
-    task = calendar.add_task(summary="Buy milk")
-    assert [t.uid for t in calendar.tasks(include_completed=False)] == [task.uid]
+    ## A collection that cannot hold tasks says so, rather than storing something else
+    if unsupported(tasklist, Feature.COMPONENT_TASK):
+        with pytest.raises(UnsupportedError):
+            tasklist.add_task(summary="Buy milk")
+        assert tasklist.search() == []
+        return
+
+    task = tasklist.add_task(summary="Buy milk")
+    assert [t.uid for t in tasklist.tasks(include_completed=False)] == [task.uid]
 
     task.complete()
     # A completed task drops out of the to-do list, but is not gone.
-    assert calendar.tasks(include_completed=False) == []
-    assert calendar.reload(task).component.status == "COMPLETED"
+    assert tasklist.tasks(include_completed=False) == []
+    assert tasklist.reload(task).component.status == "COMPLETED"
 
-    ## What went wrong?  Did I spill the milk?
+    ## Ticked off by mistake: the milk is still in the shop
     task.uncomplete()
-    assert [t.uid for t in calendar.tasks(include_completed=False)] == [task.uid]
+    assert [t.uid for t in tasklist.tasks(include_completed=False)] == [task.uid]
 
 
-def test_a_due_date_is_kept(calendar: Collection) -> None:
-    """ Add a task with a due-date"""
+def test_a_due_date_is_kept(tasklist: Collection) -> None:
+    """Add a task with a due-date"""
     ## For a task, icalendar's ``end`` is DUE.
 
     ## Due-date unsupported?  Then we should get a LossyWriteError
-    if unsupported(calendar, Feature.TASK_DUE):
+    if unsupported(tasklist, Feature.TASK_DUE):
         with pytest.raises(LossyWriteError):
-            calendar.add_task(summary="Pay the rent", end=date(2026, 11, 1))
-        assert calendar.tasks() == []
+            tasklist.add_task(summary="Pay the rent", end=day(-1))
+        assert tasklist.tasks() == []
         return
 
-    ## Add the task, reload the calendar
-    task = calendar.add_task(summary="Pay the rent", end=date(2026, 11, 1))
-    assert calendar.reload(task).component.end == date(2026, 11, 1)
+    ## Add the task, reload the task list
+    task = tasklist.add_task(summary="Pay the rent", end=day(-1))
+    assert tasklist.reload(task).component.end == day(-1)
 
 
-def test_a_calendar_for_events_refuses_tasks(events_calendar: Collection) -> None:
+def test_a_calendar_for_events_refuses_tasks(calendar: Collection) -> None:
     """The backend is never asked to store what the calendar says it does not hold."""
-    if not unsupported(events_calendar, Feature.COMPONENT_TASK):
-        pytest.skip("the backend made a calendar for every component anyway (SOGo does)")
+    if not unsupported(calendar, Feature.COMPONENT_TASK):
+        pytest.skip("the backend made a calendar for every component anyway (SOGo does), or has only one")
     with pytest.raises(UnsupportedError):
-        events_calendar.add_task(summary="Buy milk")
-    assert events_calendar.search() == []
+        calendar.add_task(summary="Buy milk")
+    assert calendar.search() == []
 
 
-def test_a_journal_entry_is_written_where_the_backend_keeps_journals(calendar: Collection) -> None:
-    if unsupported(calendar, Feature.COMPONENT_JOURNAL):
+@pytest.mark.checks_refusal
+def test_a_journal_entry_is_written_where_the_backend_keeps_journals(journal: Collection) -> None:
+    if unsupported(journal, Feature.COMPONENT_JOURNAL):
         # Several CalDAV servers (SOGo, Zimbra, CCS, OX) have no journals, and nor do trackers.
         with pytest.raises(UnsupportedError):
-            calendar.add_journal(summary="Notes from the planning meeting", start=date(2026, 11, 2))
-        assert calendar.search() == []
+            journal.add_journal(summary="Notes from the planning meeting", start=day(0))
+        assert journal.search() == []
         return
-    notes = calendar.add_journal(summary="Notes from the planning meeting", start=date(2026, 11, 2))
-    assert [j.uid for j in calendar.journals()] == [notes.uid]
+    notes = journal.add_journal(summary="Notes from the planning meeting", start=day(0))
+    assert [j.uid for j in journal.journals()] == [notes.uid]
 
 
 def test_a_recurring_event_is_expanded_into_occurrences(calendar: Collection) -> None:
     if unsupported(calendar, Feature.COMPONENT_EVENT):
         pytest.skip("the backend holds no events; test_an_event_is_added_... checks the refusal")
-    standup = Event.new(summary="Stand-up", start=at(2, 9), end=at(2, 10))
+    standup = Event.new(summary="Stand-up", start=at(0, 9), end=at(0, 10))
     standup.component.add("RRULE", {"FREQ": "DAILY", "COUNT": 5})
     if unsupported(calendar, Feature.RECURRENCE):
         # A backend that cannot store the rule must not silently store a one-off event.
@@ -270,58 +297,58 @@ def test_a_recurring_event_is_expanded_into_occurrences(calendar: Collection) ->
     calendar.add(standup)
 
     # Wednesday to Friday: three of the five mornings.
-    mornings = calendar.events(start=at(4, 0), end=at(7, 0), expand=True)
-    assert sorted(m.component.start for m in mornings) == [at(4, 9), at(5, 9), at(6, 9)]
+    mornings = calendar.events(start=at(2, 0), end=at(5, 0), expand=True)
+    assert sorted(m.component.start for m in mornings) == [at(2, 9), at(3, 9), at(4, 9)]
     assert all(m.is_occurrence and m.uid == standup.uid for m in mornings)
 
 
-def test_tasks_are_found_by_category_and_by_text(calendar: Collection) -> None:
-    if unsupported(calendar, Feature.CATEGORIES):
+def test_tasks_are_found_by_category_and_by_text(tasklist: Collection) -> None:
+    if unsupported(tasklist, Feature.CATEGORIES):
         with pytest.raises(LossyWriteError):
-            calendar.add_task(summary="Write the report", categories=["work"])
+            tasklist.add_task(summary="Write the report", categories=["work"])
         # Not stored without its category, either.
-        assert calendar.tasks() == []
+        assert tasklist.tasks() == []
         return
-    calendar.add_task(summary="Write the report", categories=["work"])
-    calendar.add_task(summary="Book the dentist", categories=["home"])
+    tasklist.add_task(summary="Write the report", categories=["work"])
+    tasklist.add_task(summary="Book the dentist", categories=["home"])
 
     by_category = Searcher(todo=True)
     by_category.add_property_filter("CATEGORIES", "work")
-    assert summaries(calendar.search(by_category)) == ["Write the report"]
+    assert summaries(tasklist.search(by_category)) == ["Write the report"]
 
     by_text = Searcher(todo=True)
     by_text.add_property_filter("SUMMARY", "dentist", operator="contains")
-    assert summaries(calendar.search(by_text)) == ["Book the dentist"]
+    assert summaries(tasklist.search(by_text)) == ["Book the dentist"]
 
 
-def test_changes_tells_a_sync_client_what_happened(calendar: Collection) -> None:
+def test_changes_tells_a_sync_client_what_happened(tasklist: Collection) -> None:
     """What a sync tool does: take a token, come back later, and get only the news."""
-    calendar.add_task(summary="Kept")
-    edited = calendar.add_task(summary="Edited")
-    deleted = calendar.add_task(summary="Deleted")
-    if unsupported(calendar, Feature.CHANGES):
+    tasklist.add_task(summary="Kept")
+    edited = tasklist.add_task(summary="Edited")
+    deleted = tasklist.add_task(summary="Deleted")
+    if unsupported(tasklist, Feature.CHANGES):
         with pytest.raises(UnsupportedError):
-            calendar.changes()
+            tasklist.changes()
         return
-    token = calendar.changes().token
+    token = tasklist.changes().token
 
     edited.component.summary = "Edited, and then some"
     edited.save()
     deleted.delete()
 
     # The task left alone is not news.
-    news = calendar.changes(token)
+    news = tasklist.changes(token)
     assert [i.uid for i in news.changed] == [edited.uid]
     assert news.deleted == [deleted.native_id]
 
 
-def test_a_stale_copy_cannot_overwrite_a_newer_one(calendar: Collection) -> None:
+def test_a_stale_copy_cannot_overwrite_a_newer_one(tasklist: Collection) -> None:
     """Two clients edit the same task: the second one to save is told, not silently overwritten."""
-    if unsupported(calendar, Feature.WRITE_CONDITIONAL):
+    if unsupported(tasklist, Feature.WRITE_CONDITIONAL):
         pytest.skip("the backend overwrites by design, so there is no refusal to check")
-    calendar.add_task(summary="Shared task")
-    [mine] = calendar.tasks()
-    [theirs] = calendar.tasks()
+    tasklist.add_task(summary="Shared task")
+    [mine] = tasklist.tasks()
+    [theirs] = tasklist.tasks()
 
     theirs.component.summary = "Their edit"
     theirs.save()
@@ -329,36 +356,40 @@ def test_a_stale_copy_cannot_overwrite_a_newer_one(calendar: Collection) -> None
     mine.component.summary = "My edit"
     with pytest.raises(ConflictError):
         mine.save()
-    assert calendar.reload(mine).component.summary == "Their edit"
+    assert tasklist.reload(mine).component.summary == "Their edit"
 
 
-def test_a_task_is_moved_to_another_list(calendar: Collection, other_calendar: Collection) -> None:
-    task = calendar.add_task(summary="Renew the passport")
-    if unsupported(calendar, Feature.MOVE):
+def test_a_task_is_moved_to_another_list(tasklist: Collection, other_tasklist: Collection) -> None:
+    task = tasklist.add_task(summary="Renew the passport")
+    if unsupported(tasklist, Feature.MOVE):
         with pytest.raises(UnsupportedError):
-            calendar.move(task, other_calendar)
-        assert [t.uid for t in calendar.tasks()] == [task.uid]
-        assert other_calendar.tasks() == []
+            tasklist.move(task, other_tasklist)
+        assert [t.uid for t in tasklist.tasks()] == [task.uid]
+        assert other_tasklist.tasks() == []
         return
-    calendar.move(task, other_calendar)
+    tasklist.move(task, other_tasklist)
 
-    assert calendar.tasks() == []
+    assert tasklist.tasks() == []
     # By summary, not UID: a tracker gives what it moves a new identity, as moving an issue does.
-    assert summaries(other_calendar.tasks()) == ["Renew the passport"]
+    assert summaries(other_tasklist.tasks()) == ["Renew the passport"]
 
 
-def test_time_is_logged_against_a_task(calendar: Collection) -> None:
-    """Roadmap 1.6: time entries are events in the task's own calendar."""
-    task = calendar.add_task(summary="Fix the bike")
-    if unsupported(calendar, Feature.TIME_LOG):
+@pytest.mark.checks_refusal
+def test_time_is_logged_against_a_task(tasklist: Collection, calendar: Collection) -> None:
+    """Roadmap 1.6: time entries are events, in the task's own collection or in a calendar beside it."""
+    task = tasklist.add_task(summary="Fix the bike")
+    if unsupported(tasklist, Feature.TIME_LOG):
+        # A task list holding no events logs time in the calendar.
+        tasklist.time_log_collection = calendar
+    if unsupported(tasklist.time_log_collection or tasklist, Feature.TIME_LOG):
         # A tracker keeps no events to log time in.
         with pytest.raises(UnsupportedError):
-            task.log_time(spent=timedelta(hours=1), day=date(2026, 11, 2))
-        assert summaries(calendar.search()) == ["Fix the bike"]
+            task.log_time(spent=timedelta(hours=1), day=day(0))
+        assert summaries(tasklist.search()) == ["Fix the bike"]
         return
-    task.log_time(start=at(2, 9), end=at(2, 10))
-    task.log_time(spent=timedelta(minutes=30), day=date(2026, 11, 3))
+    task.log_time(start=at(0, 9), end=at(0, 10))
+    task.log_time(spent=timedelta(minutes=30), day=day(1))
 
     assert task.time_spent() == timedelta(hours=1, minutes=30)
     # The task itself is still the only thing the to-do list shows.
-    assert [t.uid for t in calendar.tasks()] == [task.uid]
+    assert [t.uid for t in tasklist.tasks()] == [task.uid]
