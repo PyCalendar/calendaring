@@ -1,18 +1,16 @@
 """What a user of the library does, step by step, on every kind of backend.
 
-These tests are meant to be read: one story each, in the sync mode, the
-way a script would use the library.  The conformance suites are what check
-every promise in detail; this file checks that the obvious things work,
-on local files, in memory and on real CalDAV servers.
+These tests are optimized for readability: one story each.
 
-Where a backend cannot do what the story needs, the story checks the other
-half of the promise instead: the call is refused before anything is
-written, with ``UnsupportedError`` for an operation and ``LossyWriteError``
-for a value the backend would have to drop.  The memory backend's
-``TRACKER`` and ``MINIMAL`` profiles are there to walk those paths.
+Those tests are slightly redundant, the conformance suites should
+ensure in details that everything works as intended.
+
+When the backend cannot support the scenario, the test asserts that
+this is properly flagged (``UnsupportedError`` or ``LossyWriteError``)
 
 Add caldav's docker servers with ``--caldav-servers=Baikal,Nextcloud``
 (see ``conftest.py``).
+
 """
 
 from __future__ import annotations
@@ -77,6 +75,7 @@ def open_backend(where: str, directory: Path, request: pytest.FixtureRequest) ->
     return Backend.open(server.url, kind="caldav", **server.options)
 
 
+## TODO: hard-coded dates does not work, quite some systems will suddenly stop working when 2026 is beyond the event horizon
 def at(day: int, hour: int) -> datetime:
     """A time in November 2026, when all these stories take place."""
     return datetime(2026, 11, day, hour, tzinfo=UTC)
@@ -155,13 +154,19 @@ def other_calendar(
 
 
 def test_a_new_calendar_is_listed_and_can_be_renamed(backend: Backend, calendar: Collection) -> None:
+    ## The calendar fixture is a freshly made collection
+    ## backend.collections() should list up all collections, including calendar
     assert calendar.id in [c.id for c in backend.collections()]
 
+    ## Can the backend set a name on a collection?
+    ## If not, assert UnsupportedError is raised when trying to rename it
     if unsupported(calendar, Feature.COLLECTION_SET_NAME):
         with pytest.raises(UnsupportedError):
             calendar.set_name("Renamed")
         assert backend.collection(calendar.id).name != "Renamed"
         return
+
+    ## Do the rename
     calendar.set_name("Renamed")
 
     # Ask the backend again, rather than trusting the object we renamed.
@@ -169,19 +174,29 @@ def test_a_new_calendar_is_listed_and_can_be_renamed(backend: Backend, calendar:
 
 
 def test_an_event_is_added_found_changed_and_deleted(calendar: Collection) -> None:
+
+    ## Assert that we get an appropriate error if trying to insert an event
+    ## into a collection that cannot hold events
     if unsupported(calendar, Feature.COMPONENT_EVENT):
         # A task tracker holds no events.
         with pytest.raises(UnsupportedError):
             calendar.add_event(summary="Planning meeting", start=at(2, 9), end=at(2, 10))
         assert calendar.search() == []
         return
+
+    ## Adding an event into the collection
     meeting = calendar.add_event(summary="Planning meeting", start=at(2, 9), end=at(2, 10))
 
+    ## Do a date search for events
     found = calendar.events(start=at(2, 0), end=at(3, 0))
+    ## Assert event is found
     assert [e.uid for e in found] == [meeting.uid]
 
+    ## Editing an event
     meeting.component.summary = "Planning meeting, moved to room 2"
     meeting.save()
+
+    ## Asserting the edit can be read back from the collection
     assert calendar.reload(meeting).component.summary == "Planning meeting, moved to room 2"
 
     meeting.delete()
@@ -190,6 +205,8 @@ def test_an_event_is_added_found_changed_and_deleted(calendar: Collection) -> No
 
 def test_a_task_is_completed_and_uncompleted(calendar: Collection) -> None:
     """The plann use case: add a task, tick it off, and change one's mind."""
+
+    ## TODO: no checks that the collection support tasks?
     task = calendar.add_task(summary="Buy milk")
     assert [t.uid for t in calendar.tasks(include_completed=False)] == [task.uid]
 
@@ -198,18 +215,23 @@ def test_a_task_is_completed_and_uncompleted(calendar: Collection) -> None:
     assert calendar.tasks(include_completed=False) == []
     assert calendar.reload(task).component.status == "COMPLETED"
 
+    ## What went wrong?  Did I spill the milk?
     task.uncomplete()
     assert [t.uid for t in calendar.tasks(include_completed=False)] == [task.uid]
 
 
-def test_a_due_date_is_kept_or_the_task_is_refused(calendar: Collection) -> None:
-    """A task the backend cannot store with its due date must not be stored without it."""
-    # For a task, icalendar's ``end`` is DUE.
+def test_a_due_date_is_kept(calendar: Collection) -> None:
+    """ Add a task with a due-date"""
+    ## For a task, icalendar's ``end`` is DUE.
+
+    ## Due-date unsupported?  Then we should get a LossyWriteError
     if unsupported(calendar, Feature.TASK_DUE):
         with pytest.raises(LossyWriteError):
             calendar.add_task(summary="Pay the rent", end=date(2026, 11, 1))
         assert calendar.tasks() == []
         return
+
+    ## Add the task, reload the calendar
     task = calendar.add_task(summary="Pay the rent", end=date(2026, 11, 1))
     assert calendar.reload(task).component.end == date(2026, 11, 1)
 
