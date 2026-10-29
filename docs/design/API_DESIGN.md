@@ -1225,7 +1225,9 @@ initial set:
 `create_collection(components=...)` is `LOSSY` where the server does not
 keep the requested components, as caldav says of SOGo (a calendar for all
 of them), Bedework 5 (one for events only) and GMX. No loss policy applies, as nothing
-is written; the collection's `components` say what it holds. A collection
+is written; the collection's `components` say what it holds. A component
+the server is known not to store is not asked for at all, and makes it
+`LOSSY` too: Infomaniak and CCS refuse any calendar naming `VJOURNAL`. A collection
 that would hold none of what was asked is deleted again where it can be,
 and refused with `UnsupportedError` for the first requested component in
 sorted order.

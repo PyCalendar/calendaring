@@ -153,3 +153,11 @@ def test_a_calendar_is_made_lossily_where_the_server_ignores_the_component_set()
     capability = backend_capabilities(ignored)[Feature.CREATE_COLLECTION]
     assert capability.level is Support.LOSSY
     assert "components" in (capability.note or "")
+
+
+def test_a_calendar_is_made_lossily_where_the_server_cannot_store_a_component() -> None:
+    # Infomaniak and CCS: a calendar asked for journals is made without them
+    server = hinted(save_load="full", create_calendar="full", **{"save-load.journal": "unsupported"})
+    capability = backend_capabilities(server)[Feature.CREATE_COLLECTION]
+    assert capability.level is Support.LOSSY
+    assert "VJOURNAL" in (capability.note or "")

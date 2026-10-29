@@ -122,6 +122,14 @@ def _table(features: Any) -> dict[Feature, Any]:
             "level": L,
             "note": "the requested components are not kept: the server decides",
         }
+    elif table[Feature.CREATE_COLLECTION] is F and (
+        refused := sorted(c.value for c in Component if _level(features, COMPONENT_FROM_SERVER[c][1]) is U)
+    ):
+        # Infomaniak and CCS: a calendar asked for these is made without them
+        table[Feature.CREATE_COLLECTION] = {
+            "level": L,
+            "note": f"made without {', '.join(refused)}, which the server does not store",
+        }
     return table
 
 
