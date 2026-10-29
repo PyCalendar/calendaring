@@ -40,9 +40,8 @@ caldav's test helper is told, so that port must be free.
 The CalDAV conformance suite and the readable stories in
 `tests/test_scenarios.py` (which also run on the files and memory
 backends) can also run against the docker and external servers of
-caldav's own test framework, `caldav.testing`.  That needs a caldav
-from after [caldav issue 817](https://github.com/python-caldav/caldav/issues/817)
-was fixed.  The servers are not started for you; start them in a caldav
+caldav's own test framework, `caldav.testing`.  That needs caldav 3.7.0
+or later.  The servers are not started for you; start them in a caldav
 checkout first:
 
 ```
