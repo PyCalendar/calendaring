@@ -468,6 +468,7 @@ async def test_a_separate_time_log_collection() -> None:
     assert [i.uid for i in await log.search()] == [entry.id]
     assert await tasks.events() == []
     tasks.time_log_collection = None
+    assert tasks.capabilities.level(Feature.TIME_LOG) is Support.UNSUPPORTED
     with pytest.raises(UnsupportedError):
         await task.log_time(spent=HOUR)  # the task list itself holds no events
 

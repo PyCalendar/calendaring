@@ -22,13 +22,13 @@ from icalendar_searcher import Searcher
 
 from .._concurrency import to_thread
 from .._files_store import Entry, IcsFile, Vdir, collections, layout, make_collection
-from ..capabilities import EDIT_ICALENDAR_PENDING, NO_EVENTS_FOR_TIME_LOG, Capabilities, Feature, Support
+from ..capabilities import EDIT_ICALENDAR_PENDING, Capabilities, Feature, Support, held_only
 from ..errors import ConfigurationError, InvalidDataError
 from ..items import _parse
 from ..loss import LossPolicy
 from ..types import BrokenObject, Component, StoredObject
 from .backend import Backend
-from .collection import COMPONENT_FEATURE, Collection
+from .collection import Collection
 
 __all__ = ["FilesBackend", "FilesCollection"]
 
@@ -59,11 +59,7 @@ def collection_capabilities(single_file: bool, components: frozenset[Component])
                 Feature.COLLECTION_SET_NAME: U,
             }
         )
-    for kind, feature in COMPONENT_FEATURE.items():
-        if kind not in components:
-            table[feature] = U
-    if Component.EVENT not in components:  # time entries are VEVENTs in the item's own collection
-        table[Feature.TIME_LOG] = {"level": U, "note": NO_EVENTS_FOR_TIME_LOG}
+    held_only(table, components)
     for feature in (Feature.CREATE_COLLECTION, Feature.DELETE_COLLECTION):
         del table[feature]
     return Capabilities(table)

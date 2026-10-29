@@ -18,11 +18,11 @@ from typing import Any
 from .capabilities import (
     BACKEND_FEATURES,
     EDIT_ICALENDAR_PENDING,
-    NO_EVENTS_FOR_TIME_LOG,
     Capabilities,
     Capability,
     Feature,
     Support,
+    held_only,
 )
 from .types import Component
 
@@ -183,7 +183,7 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
     table[Feature.CHANGES] = _changes(features)
     table[Feature.SEARCH_TIME_RANGE] = _time_range(features)
     for kind, (feature, name) in COMPONENT_FROM_SERVER.items():
-        table[feature] = _level(features, name) if kind in components else U
-    if Component.EVENT not in components:  # time entries are VEVENTs in the item's own collection
-        table[Feature.TIME_LOG] = {"level": U, "note": NO_EVENTS_FOR_TIME_LOG}
+        if kind in components:
+            table[feature] = _level(features, name)
+    held_only(table, components)
     return Capabilities({f: Capability.coerce(v) for f, v in table.items()})
