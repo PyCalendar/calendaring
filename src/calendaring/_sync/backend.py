@@ -132,7 +132,12 @@ class Backend(ABC):
         if self.capabilities.level(Feature.CREATE_COLLECTION) is Support.UNSUPPORTED:
             raise UnsupportedError(Feature.CREATE_COLLECTION, backend=self.id)
         wanted = frozenset(components)
-        made = self._create_collection(name, wanted)
+        asked = self._creatable(wanted)
+        if wanted and not asked:
+            raise _none_held(wanted, self.id)
+        if len(asked) > 1 and self.capabilities.level(Feature.COLLECTION_MIXED) is Support.UNSUPPORTED:
+            asked = frozenset(sorted(asked, key=lambda c: c.value)[:1])  # CCS: one kind per calendar
+        made = self._create_collection(name, asked)
         if wanted and not made.components & wanted:  # Bedework makes events-only calendars whatever is asked
             if self.capabilities.level(Feature.DELETE_COLLECTION) is Support.UNSUPPORTED:
                 raise _none_held(wanted, self.id, left=made.id)
@@ -143,10 +148,14 @@ class Backend(ABC):
             raise _none_held(wanted, self.id)
         return made
 
+    def _creatable(self, components: frozenset[Component]) -> frozenset[Component]:
+        """What of ``components`` to ask for: a backend leaves out what it knows it cannot hold."""
+        return components
+
     def _create_collection(self, name: str, components: frozenset[Component]) -> Collection:
         """Make the collection; one that holds none of ``components`` is deleted again and refused.
 
-        A backend that knows it cannot hold any of them raises ``_none_held()`` itself, before any I/O.
+        What it knows it cannot hold, ``_creatable()`` has left out before any I/O.
         """
         raise NotImplementedError(f"{type(self).__name__} declares {Feature.CREATE_COLLECTION} but cannot")
 

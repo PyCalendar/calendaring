@@ -22,7 +22,7 @@ from ..errors import ConflictError, InvalidDataError
 from ..items import Item
 from ..loss import LossPolicy
 from ..types import BrokenObject, Component, StoredObject
-from .backend import AsyncBackend, _none_held
+from .backend import AsyncBackend
 from .collection import AsyncCollection
 
 __all__ = ["AsyncMemoryBackend", "AsyncMemoryCollection"]
@@ -147,9 +147,10 @@ class AsyncMemoryBackend(AsyncBackend):
             return self.collection_class(self, self.store.calendars[name_or_id])
         return await super().collection(name_or_id)
 
+    def _creatable(self, components: frozenset[Component]) -> frozenset[Component]:
+        return components & self.profile.components
+
     async def _create_collection(self, name: str, components: frozenset[Component]) -> AsyncCollection:
-        if components and not components & self.profile.components:
-            raise _none_held(components, self.id)
         id = name
         while id in self.store.calendars:
             id = f"{name}-{self.store.next()}"

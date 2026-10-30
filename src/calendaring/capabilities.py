@@ -41,6 +41,7 @@ class Feature(StrEnum):
     CREATE_COLLECTION = "create-collection"
     DELETE_COLLECTION = "delete-collection"
     COLLECTION_SET_NAME = "collection.set-name"
+    COLLECTION_MIXED = "collection.mixed"
     SEARCH_SERVER_SIDE = "search.server-side"
     SEARCH_TIME_RANGE = "search.time-range"
     SEARCH_TEXT = "search.text"
@@ -77,7 +78,7 @@ class Feature(StrEnum):
 
 
 # Declared on the backend rather than on a collection (§5.2).
-BACKEND_FEATURES = frozenset({Feature.CREATE_COLLECTION, Feature.DELETE_COLLECTION})
+BACKEND_FEATURES = frozenset({Feature.CREATE_COLLECTION, Feature.DELETE_COLLECTION, Feature.COLLECTION_MIXED})
 
 # Capability notes for backends to share, in-tree and out, so the capability matrix reads the same.
 # Why occurrence edits and recurring-task completion are UNSUPPORTED for now:

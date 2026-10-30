@@ -111,6 +111,29 @@ def test_no_uncomplete_where_the_server_keeps_a_task_completed() -> None:
     assert collection_capabilities(server, ALL).level(Feature.TASK_UNCOMPLETE) is Support.UNSUPPORTED
 
 
+def test_one_kind_per_calendar_where_the_server_refuses_several() -> None:
+    """CCS refuses a MKCALENDAR naming VEVENT and VTODO; Bedework 3, Zimbra and Ox misreport one."""
+    multiple = "create-calendar.with-supported-component-types.multiple"
+    for support in ("unsupported", "broken"):
+        server = features({"save-load": {"support": "full"}, multiple: {"support": support}})
+        table = backend_capabilities(server)
+        assert table.level(Feature.COLLECTION_MIXED) is Support.UNSUPPORTED
+        assert table.level(Feature.CREATE_COLLECTION) is Support.LOSSY
+    ccs = features(
+        {
+            "save-load": {"support": "full"},
+            "save-load.journal": {"support": "unsupported"},
+            multiple: {"support": "unsupported"},
+        }
+    )
+    note = backend_capabilities(ccs)[Feature.CREATE_COLLECTION].note or ""
+    assert "VJOURNAL" in note
+    assert "one component only" in note
+    table = backend_capabilities(hinted(save_load="full"))
+    assert table.level(Feature.COLLECTION_MIXED) is Support.FULL
+    assert table.level(Feature.CREATE_COLLECTION) is Support.FULL
+
+
 def test_sync_token_is_used_only_where_deletions_are_reported_too() -> None:
     assert collection_capabilities(hinted(sync_token="full"), ALL).details(Feature.CHANGES) == {"method": "sync-token"}
     broken_delete = hinted(**{"sync-token": "full", "sync-token.delete": "unsupported"})

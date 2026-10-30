@@ -35,7 +35,7 @@ from ..errors import (
 from ..items import _items_of, _parse
 from ..loss import LossPolicy
 from ..types import BrokenObject, Component, StoredObject, SyncToken
-from .backend import Backend, _none_held
+from .backend import Backend
 from .collection import Collection
 from .dav import DAV
 
@@ -278,12 +278,12 @@ class CalDAVBackend(Backend):
                 continue
         return found
 
-    def _create_collection(self, name: str, components: frozenset[Component]) -> Collection:
+    def _creatable(self, components: frozenset[Component]) -> frozenset[Component]:
         # Infomaniak and CCS refuse any set naming a kind they cannot store; ask for the rest.
-        asked = stored_components(self._dav.client.features, components)
-        if components and not asked:
-            raise _none_held(components, self.id)
-        return self._wrap(self._dav.make_calendar(name, sorted(c.value for c in asked)))
+        return stored_components(self._dav.client.features, components)
+
+    def _create_collection(self, name: str, components: frozenset[Component]) -> Collection:
+        return self._wrap(self._dav.make_calendar(name, sorted(c.value for c in components)))
 
     def close(self) -> None:
         self._dav.close()

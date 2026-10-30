@@ -71,6 +71,20 @@ class TestTrackerProfile(SyncConformance):
         return MemoryBackend(profile=TRACKER)
 
 
+ONE_KIND = Profile(
+    "one-kind",
+    {**FULL.capabilities, Feature.COLLECTION_MIXED: Support.UNSUPPORTED, Feature.CREATE_COLLECTION: Support.LOSSY},
+    FULL.components,
+)
+
+
+class TestOneKindProfile(SyncConformance):
+    """Every kind, but a collection for one at a time (CCS): each test gets one for the kind it writes."""
+
+    def open_backend(self) -> Backend:
+        return MemoryBackend(profile=ONE_KIND)
+
+
 class TestMinimalProfile(SyncConformance):
     """It cannot make collections, so the suite borrows one that already holds something."""
 

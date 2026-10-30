@@ -71,6 +71,7 @@ TRACKER = Profile(
         **FULL.capabilities,
         Feature.COMPONENT_EVENT: U,
         Feature.COMPONENT_JOURNAL: U,
+        Feature.COLLECTION_MIXED: U,
         Feature.DELETE_COLLECTION: U,
         Feature.COLLECTION_SET_NAME: U,
         Feature.CHANGES_KNOWN: E,

@@ -32,7 +32,7 @@ import pickle
 import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar
 from zoneinfo import ZoneInfo
 
 import icalendar
@@ -92,6 +92,48 @@ def stored_by(found: Sequence[AsyncItem], seeded: Sequence[AsyncItem]) -> list[A
     """Of what a read found, what the test itself stored: a borrowed collection holds other things too."""
     mine = {i.native_id for i in seeded}
     return [i for i in found if i.native_id in mine]
+
+
+_Test = TypeVar("_Test", bound=Callable[..., Any])
+
+
+def writes(kind: Component) -> Callable[[_Test], _Test]:
+    """The kind a test writes, where it is not tasks: on a backend whose collections hold one kind
+    each (``collection.mixed`` unsupported), the test gets a collection for it."""
+
+    def mark(test: _Test) -> _Test:
+        test._writes = kind  # type: ignore[attr-defined]
+        return test
+
+    return mark
+
+
+def kind_written(request: pytest.FixtureRequest) -> Component:
+    """What the test asking for a collection writes: its ``kind``, its corpus object's or searcher's,
+    ``@writes``, or tasks."""
+    spec = getattr(request.node, "callspec", None)
+    params: dict[str, Any] = spec.params if spec is not None else {}
+    kind = params.get("kind")
+    if isinstance(kind, Component):
+        return kind
+    if params.get("name") in CORPUS:
+        return Component(Item.from_ical(CORPUS[params["name"]]).component.name)
+    if params.get("name") in searchers():
+        return searched_kind(searchers()[params["name"]]()) or Component.TASK
+    written = getattr(request.function, "_writes", Component.TASK)
+    assert isinstance(written, Component)
+    return written
+
+
+def searched_kind(searcher: Searcher) -> Component | None:
+    """The one kind a searcher asks for; an alarm range finds events (the seeded alarm is on one)."""
+    if searcher.event or searcher.alarm_start is not None:
+        return Component.EVENT
+    if searcher.journal:
+        return Component.JOURNAL
+    if searcher.todo:
+        return Component.TASK
+    return None
 
 
 def writable(collection: AsyncCollection) -> bool:
@@ -225,7 +267,13 @@ def dataset() -> list[Item]:
 
 
 class AsyncConformance:
-    """Subclass as ``TestSomething`` and implement ``open_backend()``."""
+    """Subclass as ``TestSomething`` and implement ``open_backend()``.
+
+    Where the backend's collections hold one kind each (``collection.mixed``
+    unsupported), each test gets a collection for the kind it writes: tasks,
+    unless it is marked ``@writes(Component.EVENT)`` or the like.  A subclass
+    overriding such a test marks its override the same way.
+    """
 
     # Non-CalDAV backends are code, not servers, and must not declare UNKNOWN (§5.1).
     allow_unknown: bool = False
@@ -239,7 +287,12 @@ class AsyncConformance:
     async def open_backend(self) -> AsyncBackend:
         raise NotImplementedError("a conformance test class must implement open_backend()")
 
-    async def open_collection(self, backend: AsyncBackend, name: str = "conformance") -> AsyncCollection:
+    async def open_collection(
+        self,
+        backend: AsyncBackend,
+        name: str = "conformance",
+        components: tuple[Component, ...] = (Component.EVENT, Component.TASK, Component.JOURNAL),
+    ) -> AsyncCollection:
         """A collection to test against: made if the backend may be able to, else the first one listed.
 
         Where collections can be made but not deleted, the one a previous run
@@ -251,9 +304,7 @@ class AsyncConformance:
             if left is not None:
                 return await self.borrow(left)
             try:
-                made = await backend.create_collection(
-                    name, components=(Component.EVENT, Component.TASK, Component.JOURNAL)
-                )
+                made = await backend.create_collection(name, components=components)
             except CalendaringError:
                 if backend.capabilities.level(Feature.CREATE_COLLECTION) is not Support.UNKNOWN:
                     raise
@@ -334,7 +385,14 @@ class AsyncConformance:
         return item.native_id in written or item.uid in written or any(str(r) in written for r in related)
 
     @pytest.fixture
-    async def collection(self, backend: AsyncBackend) -> AsyncCollection:
+    async def collection(self, backend: AsyncBackend, request: pytest.FixtureRequest) -> AsyncCollection:
+        """Where the backend's collections hold one kind each, one for the kind the test writes."""
+        if backend.capabilities.level(Feature.COLLECTION_MIXED) is Support.UNSUPPORTED:
+            kind = kind_written(request)
+            try:
+                return await self.open_collection(backend, f"conformance-{kind.value.lower()}", (kind,))
+            except UnsupportedError:  # none of that kind: the test checks the refusal in another
+                pass
         return await self.open_collection(backend)
 
     # --- helpers ------------------------------------------------------
@@ -527,7 +585,10 @@ class AsyncConformance:
             with pytest.raises(NotFoundError):
                 await collection.get(f"-{suffix}")
         if backend.capabilities.supports(Feature.CREATE_COLLECTION, allow_lossy=True):
-            other = await self.open_collection(backend, "conformance-other")
+            try:
+                other = await self.open_collection(backend, "conformance-other", (Component.TASK,))
+            except UnsupportedError:
+                return  # no task list to be made: Bedework
             if writable(other) and holds(other, Component.TASK):
                 elsewhere = await other.add_task(summary="in another collection")
                 with pytest.raises(NotFoundError):
@@ -808,6 +869,9 @@ class AsyncConformance:
             for c in matched.subcomponents
             if c.name != "VTIMEZONE"
         }
+        kind = searched_kind(searchers()[name]())
+        if kind is not None and holds(collection, kind):  # else it would pass on anything
+            assert any(i.component.name == kind.value for i in seeded), f"nothing seeded for {name} to search"
         found = stored_by(await collection.search(searchers()[name]()), seeded)
         assert {key(i) for i in found} == expected
         assert all(isinstance(i, AsyncItem) and i.collection is collection for i in found)
@@ -822,6 +886,7 @@ class AsyncConformance:
         assert {key(i) for i in by_keywords} == {key(i) for i in by_searcher}
         assert by_keywords
 
+    @writes(Component.EVENT)
     async def test_expanded_search_returns_occurrences(self, collection: AsyncCollection) -> None:
         if not holds(collection, Component.EVENT):
             pytest.skip("the collection holds no events")
@@ -940,6 +1005,7 @@ class AsyncConformance:
 
     # === recurrence ===================================================
 
+    @writes(Component.EVENT)
     async def test_save_one_occurrence(self, collection: AsyncCollection) -> None:
         if not writable(collection):
             await self.assert_read_only(collection)
@@ -993,6 +1059,7 @@ class AsyncConformance:
         found = await collection.search(event=True, start=at(1, 0), end=at(9, 0), expand=True)
         return {i.component.decoded("RECURRENCE-ID").day: i for i in found if i.uid == series.uid}
 
+    @writes(Component.EVENT)
     async def test_delete_one_occurrence(self, collection: AsyncCollection) -> None:
         series = await self.recurring_series(collection)
         before = await self.occurrences(collection, series)
@@ -1015,6 +1082,7 @@ class AsyncConformance:
         assert all(e.params.get("TZID") == dtstart.params.get("TZID") for e in exdates), "EXDATE not in DTSTART's form"
         assert not [c for c in stored.icalendar.walk("VEVENT") if "RECURRENCE-ID" in c], "the override was kept"
 
+    @writes(Component.EVENT)
     async def test_delete_an_occurrence_read_before_a_sibling_was_deleted(self, collection: AsyncCollection) -> None:
         series = await self.recurring_series(collection)
         read = await self.occurrences(collection, series)
@@ -1022,6 +1090,7 @@ class AsyncConformance:
         await collection.delete(read[5])  # its etag is stale, but the occurrence itself is unchanged (Q12)
         assert sorted(await self.occurrences(collection, series)) == [1, 2, 3]
 
+    @writes(Component.EVENT)
     async def test_delete_an_occurrence_changed_since_it_was_read(self, collection: AsyncCollection) -> None:
         series = await self.recurring_series(collection)
         read = await self.occurrences(collection, series)
@@ -1273,6 +1342,7 @@ class AsyncConformance:
         await item.delete_time(read)
         assert await item.time_log() == []
 
+    @writes(Component.EVENT)
     async def test_time_spent_in_a_meeting(self, collection: AsyncCollection) -> None:
         if not holds(collection, Component.EVENT):
             pytest.skip("the collection holds no events")
@@ -1305,7 +1375,7 @@ class AsyncConformance:
             return
         if not backend.capabilities.supports(Feature.CREATE_COLLECTION, allow_lossy=True):
             pytest.skip("a second collection is needed, and the backend cannot make one")
-        target = await self.open_collection(backend, "conformance-target")
+        target = await self.open_collection(backend, "conformance-target", (Component.TASK,))
         moved = await collection.move(task, target)
         assert moved.collection is target
         assert moved.collection_id == target.id
@@ -1319,7 +1389,7 @@ class AsyncConformance:
         task = await self.add_task(collection, summary="moving")
         if not backend.capabilities.supports(Feature.CREATE_COLLECTION, allow_lossy=True):
             pytest.skip("a second collection is needed, and the backend cannot make one")
-        target = await self.open_collection(backend, "conformance-target")
+        target = await self.open_collection(backend, "conformance-target", (Component.TASK,))
         if level(target, Feature.CHANGES) is Support.UNSUPPORTED:
             pytest.skip("the second collection has no change feed")
         here, there = await collection.changes(), await target.changes()
