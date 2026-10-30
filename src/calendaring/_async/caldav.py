@@ -270,7 +270,13 @@ class AsyncCalDAVBackend(AsyncBackend):
         return self.collection_class(self, calendar, name=await self._dav.display_name(calendar), components=components)
 
     async def collections(self) -> list[AsyncCollection]:
-        return [await self._wrap(c) for c in await self._dav.calendars()]
+        found: list[AsyncCollection] = []
+        for calendar in await self._dav.calendars():
+            try:
+                found.append(await self._wrap(calendar))
+            except NotFoundError:  # listed, yet not there: Bedework's tasks/, or deleted meanwhile
+                continue
+        return found
 
     async def _create_collection(self, name: str, components: frozenset[Component]) -> AsyncCollection:
         # Infomaniak and CCS refuse any set naming a kind they cannot store; ask for the rest.
