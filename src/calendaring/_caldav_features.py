@@ -198,5 +198,7 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
     for kind, (feature, name) in COMPONENT_FROM_SERVER.items():
         if kind in components:
             table[feature] = _level(features, name)
+    if _level(features, "save-load.icalendar.related-to") is U:
+        table[Feature.TIME_LOG] = {"level": U, "note": "the server strips RELATED-TO, which ties an entry to its item"}
     held_only(table, components)
     return Capabilities({f: Capability.coerce(v) for f, v in table.items()})

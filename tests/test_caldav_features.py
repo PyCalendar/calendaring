@@ -97,6 +97,14 @@ def test_a_calendar_without_events_has_nowhere_to_log_time() -> None:
     assert both.level(Feature.TIME_LOG) is Support.FULL
 
 
+def test_no_time_log_where_the_server_strips_related_to() -> None:
+    """A time entry points at its task with RELATED-TO: Zimbra and robur store the entry without it."""
+    server = features({"save-load": {"support": "full"}, "save-load.icalendar.related-to": {"support": "unsupported"}})
+    events = collection_capabilities(server, frozenset({Component.EVENT}))
+    assert events.level(Feature.TIME_LOG) is Support.UNSUPPORTED
+    assert "RELATED-TO" in (events[Feature.TIME_LOG].note or "")
+
+
 def test_sync_token_is_used_only_where_deletions_are_reported_too() -> None:
     assert collection_capabilities(hinted(sync_token="full"), ALL).details(Feature.CHANGES) == {"method": "sync-token"}
     broken_delete = hinted(**{"sync-token": "full", "sync-token.delete": "unsupported"})
