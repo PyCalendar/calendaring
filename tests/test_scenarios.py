@@ -24,7 +24,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import caldav_server_names, running_caldav_server
+from conftest import caldav_server_names, running_caldav_server, wait_out_search_cache
 from icalendar_searcher import Searcher
 
 from calendaring import (
@@ -76,7 +76,9 @@ def open_backend(where: str, directory: Path, request: pytest.FixtureRequest) ->
             directory.mkdir()
             return Backend.open(str(directory / "calendar.ics"))
     server = running_caldav_server(request, where)
-    return Backend.open(server.url, kind="caldav", **server.options)
+    backend = Backend.open(server.url, kind="caldav", **server.options)
+    wait_out_search_cache(backend, request.getfixturevalue("monkeypatch"))
+    return backend
 
 
 # Next week: a fixed date would one day be past every server's time range.

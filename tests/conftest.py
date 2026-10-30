@@ -11,7 +11,10 @@ Servers are never started here: start them in a caldav checkout
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import socket
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -146,6 +149,51 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         # Radicale always listens on 5232, and stop() shuts down whichever one answers there
         if "radicale_server" in getattr(item, "fixturenames", ()):
             item.add_marker(pytest.mark.xdist_group("Radicale"))
+
+
+def wait_out_search_cache(backend: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A search on ``backend`` waits for what is left of its server's search-cache delay since a write.
+
+    Bedework 3 and Purelymail answer from an index that lags behind writes; a user
+    seldom searches within seconds of a write, a story always does.  caldav's own
+    integration tests wait the same way, with the same helper, which caldav ships
+    from 3.8; with an older caldav the stories on those servers may fail.
+    """
+    try:
+        from caldav.collection import Calendar
+        from caldav.testing.search_cache_delay import SearchCacheDelay  # type: ignore[import-not-found,unused-ignore]  # caldav 3.8
+    except ImportError:
+        return
+    client = backend._dav.client
+    delay = SearchCacheDelay.from_features(client.features)
+    if delay is None:
+        return
+    if inspect.iscoroutinefunction(client.request):
+        monkeypatch.setattr(Calendar, "search", delay.wrap_async_search(Calendar.search))
+        monkeypatch.setattr(client, "request", delay.wrap_async_request(client.request))
+    else:
+        monkeypatch.setattr(Calendar, "search", delay.wrap_search(Calendar.search))
+        monkeypatch.setattr(client, "request", delay.wrap_request(client.request))
+    if not delay.filtered_only:
+        # Bedework 3 lags in the etag listing of changes() too, a PROPFIND rather than a search
+        monkeypatch.setattr(client, "propfind", _waiting(delay, client.propfind))
+
+
+def _waiting(delay: Any, method: Any) -> Any:
+    """``method``, after what is left of ``delay`` since the last write."""
+    if inspect.iscoroutinefunction(method):
+
+        async def waited(*args: Any, **kwargs: Any) -> Any:
+            await asyncio.sleep(delay.remaining())
+            return await method(*args, **kwargs)
+
+        return waited
+
+    def waited_sync(*args: Any, **kwargs: Any) -> Any:
+        time.sleep(delay.remaining())
+        return method(*args, **kwargs)
+
+    return waited_sync
 
 
 @dataclass
