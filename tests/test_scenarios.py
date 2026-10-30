@@ -377,6 +377,11 @@ def test_a_task_is_moved_to_another_list(tasklist: Collection, other_tasklist: C
 @pytest.mark.checks_refusal
 def test_time_is_logged_against_a_task(tasklist: Collection, calendar: Collection) -> None:
     """Roadmap 1.6: time entries are events, in the task's own collection or in a calendar beside it."""
+    if unsupported(tasklist, Feature.COMPONENT_TASK):
+        # Bedework makes no task lists: there is no task to log time against.
+        with pytest.raises(UnsupportedError):
+            tasklist.add_task(summary="Fix the bike")
+        return
     task = tasklist.add_task(summary="Fix the bike")
     if unsupported(tasklist, Feature.TIME_LOG):
         # A task list holding no events logs time in the calendar.
