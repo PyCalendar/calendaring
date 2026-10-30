@@ -395,7 +395,9 @@ class AsyncCollection:
 backend reported when it listed the collection. Assigning to them would
 have to write to the server as a side effect, so renaming is an explicit
 `set_name()`, which raises `UnsupportedError` where the backend cannot
-rename (a feed, a single `.ics` file). The same goes for items: there is no
+rename (a feed, a single `.ics` file). A server that names a calendar's URL
+after its display name (Zimbra) moves the calendar on a rename, and
+`set_name()` then updates `id` too. The same goes for items: there is no
 `collection.save()` without an argument, and no autosave (but see
 [§12](#12-beyond-the-funded-scope-implicit-synchronization)). This follows caldav, which settled on
 methods for anything that talks to the server. *Proposed by the author in

@@ -49,6 +49,10 @@ SEARCH_FLAG = {Component.EVENT: "event", Component.TASK: "todo", Component.JOURN
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._@-]{1,200}$")
 
 
+def _url_of(calendar: Calendar) -> str:
+    return str(calendar.url).rstrip("/") + "/"
+
+
 def _name_of(href: object) -> str:
     return unquote(str(href).rstrip("/").rsplit("/", 1)[-1])
 
@@ -60,7 +64,7 @@ class AsyncCalDAVCollection(AsyncCollection):
         self, backend: AsyncCalDAVBackend, calendar: Calendar, *, name: str | None, components: frozenset[Component]
     ) -> None:
         self.calendar = calendar
-        self.url = str(calendar.url).rstrip("/") + "/"
+        self.url = _url_of(calendar)
         super().__init__(
             backend,
             id=_name_of(self.url),
@@ -216,7 +220,17 @@ class AsyncCalDAVCollection(AsyncCollection):
         )
 
     async def _set_name(self, name: str) -> None:
-        await self._backend._dav.set_display_name(self.calendar, name)
+        dav = self._backend._dav
+        await dav.set_display_name(self.calendar, name)
+        # Zimbra names a calendar's URL after its display name, so a rename moves the calendar.
+        listed = await dav.calendars()
+        if any(_url_of(c) == self.url for c in listed):
+            return
+        named = [c for c in listed if await dav.display_name(c) == name]
+        if len(named) == 1:  # with several of that name, which one it became is a guess
+            self.calendar = self.native = named[0]
+            self.url = _url_of(named[0])
+            self.id = _name_of(self.url)
 
     async def _delete_collection(self) -> None:
         await self._backend._dav.delete_calendar(self.calendar)
