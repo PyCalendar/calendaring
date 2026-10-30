@@ -18,11 +18,11 @@ from typing import Any
 from .capabilities import (
     BACKEND_FEATURES,
     EDIT_ICALENDAR_PENDING,
-    NO_EVENTS_FOR_TIME_LOG,
     Capabilities,
     Capability,
     Feature,
     Support,
+    held_only,
 )
 from .types import Component
 
@@ -122,6 +122,14 @@ def _table(features: Any) -> dict[Feature, Any]:
             "level": L,
             "note": "the requested components are not kept: the server decides",
         }
+    elif table[Feature.CREATE_COLLECTION] is F and (
+        refused := sorted(c.value for c in Component if _level(features, COMPONENT_FROM_SERVER[c][1]) is U)
+    ):
+        # Infomaniak and CCS: a calendar asked for these is made without them
+        table[Feature.CREATE_COLLECTION] = {
+            "level": L,
+            "note": f"made without {', '.join(refused)}, which the server does not store",
+        }
     return table
 
 
@@ -139,7 +147,8 @@ def _changes(features: Any) -> dict[str, Any]:
 
 
 def _time_range(features: Any) -> dict[str, Any]:
-    """Events only, and only where the server matches recurrences and open ranges as RFC 4791 says.
+    """Events only, and only where the server matches recurrences and open ranges as RFC 4791 says,
+    and answers a range from an index that is current.
 
     Tasks are always filtered client-side: RFC 4791 §9.9's rules for a
     ``VTODO`` are where servers disagree most, and an under-match loses data.
@@ -151,9 +160,17 @@ def _time_range(features: Any) -> dict[str, Any]:
         "search.time-range.open.end",
         "search.recurrences.includes-implicit.event",
     )
+    cache = features.is_supported("search-cache", dict)
+    if cache.get("behaviour") == "delay" and cache.get("filtered-only"):  # a plain listing is current, a range is not
+        return {"level": E, "components": []}
     if all(_level(features, name) is F for name in needed):
         return {"level": E, "components": ["VEVENT"]}
     return {"level": E, "components": []}
+
+
+def stored_components(features: Any, listed: frozenset[Component]) -> frozenset[Component]:
+    """What a calendar lists, less the kinds its server is known to refuse (robur lists VJOURNAL, then answers 400)."""
+    return frozenset(c for c in listed if _level(features, COMPONENT_FROM_SERVER[c][1]) is not U)
 
 
 def backend_capabilities(features: Any) -> Capabilities:
@@ -166,7 +183,7 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
     table[Feature.CHANGES] = _changes(features)
     table[Feature.SEARCH_TIME_RANGE] = _time_range(features)
     for kind, (feature, name) in COMPONENT_FROM_SERVER.items():
-        table[feature] = _level(features, name) if kind in components else U
-    if Component.EVENT not in components:  # time entries are VEVENTs in the item's own collection
-        table[Feature.TIME_LOG] = {"level": U, "note": NO_EVENTS_FOR_TIME_LOG}
+        if kind in components:
+            table[feature] = _level(features, name)
+    held_only(table, components)
     return Capabilities({f: Capability.coerce(v) for f, v in table.items()})

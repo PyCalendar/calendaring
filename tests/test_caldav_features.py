@@ -10,7 +10,11 @@ pytest.importorskip("caldav")
 
 from caldav.compatibility_hints import FeatureSet  # noqa: E402
 
-from calendaring._caldav_features import backend_capabilities, collection_capabilities  # noqa: E402
+from calendaring._caldav_features import (  # noqa: E402
+    backend_capabilities,
+    collection_capabilities,
+    stored_components,
+)
 from calendaring.capabilities import Feature, Support  # noqa: E402
 from calendaring.types import Component  # noqa: E402
 
@@ -113,6 +117,29 @@ def test_time_range_narrows_events_only_where_recurrences_match_too() -> None:
     assert collection_capabilities(no_implicit, ALL).details(Feature.SEARCH_TIME_RANGE) == {"components": []}
 
 
+def test_time_range_is_not_sent_where_filtered_searches_lag_behind_writes() -> None:
+    # Purelymail: a plain listing is current at once, a time-range REPORT answers from an index that lags
+    lagging = features(
+        {
+            "search": {"support": "full"},
+            "search-cache": {"behaviour": "delay", "delay": 180, "filtered-only": True},
+        }
+    )
+    assert collection_capabilities(lagging, ALL).details(Feature.SEARCH_TIME_RANGE) == {"components": []}
+    # Bedework lags in plain listings too: filtering on the client would not help, so the range is still sent
+    everywhere = features({"search": {"support": "full"}, "search-cache": {"behaviour": "delay", "delay": 3}})
+    assert collection_capabilities(everywhere, ALL).details(Feature.SEARCH_TIME_RANGE) == {"components": ["VEVENT"]}
+
+
+def test_a_calendar_does_not_hold_what_the_server_refuses_to_store() -> None:
+    # robur lists VJOURNAL as supported, then answers a journal with 400
+    listed = frozenset({Component.EVENT, Component.TASK, Component.JOURNAL})
+    refusing = hinted(save_load="full", **{"save-load.journal": "ungraceful"})
+    assert stored_components(refusing, listed) == {Component.EVENT, Component.TASK}
+    assert stored_components(hinted(save_load="full"), listed) == listed
+    assert stored_components(features(), listed) == listed  # unhinted: nothing known
+
+
 def test_a_calendar_is_made_lossily_where_the_server_ignores_the_component_set() -> None:
     server = hinted(save_load="full", create_calendar="full")
     assert backend_capabilities(server).level(Feature.CREATE_COLLECTION) is Support.FULL
@@ -126,3 +153,11 @@ def test_a_calendar_is_made_lossily_where_the_server_ignores_the_component_set()
     capability = backend_capabilities(ignored)[Feature.CREATE_COLLECTION]
     assert capability.level is Support.LOSSY
     assert "components" in (capability.note or "")
+
+
+def test_a_calendar_is_made_lossily_where_the_server_cannot_store_a_component() -> None:
+    # Infomaniak and CCS: a calendar asked for journals is made without them
+    server = hinted(save_load="full", create_calendar="full", **{"save-load.journal": "unsupported"})
+    capability = backend_capabilities(server)[Feature.CREATE_COLLECTION]
+    assert capability.level is Support.LOSSY
+    assert "VJOURNAL" in (capability.note or "")

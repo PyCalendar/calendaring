@@ -21,6 +21,7 @@ from calendaring import (
     PartialResultError,
     SyncTokenError,
     Task,
+    UnsupportedError,
 )
 
 pytest.importorskip("caldav")
@@ -79,6 +80,27 @@ async def test_a_token_is_bearer_auth() -> None:
 async def test_an_option_caldav_does_not_take_is_a_configuration_error() -> None:
     with pytest.raises(ConfigurationError, match="no_such_option"):
         await AsyncBackend.open("https://dav.example.com/", kind="caldav", no_such_option=1)
+
+
+async def test_a_calendar_is_not_asked_for_what_the_server_cannot_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Infomaniak and CCS refuse any MKCALENDAR naming VJOURNAL; their hints say so."""
+    asked: list[list[str]] = []
+
+    async def make_calendar(name: str, components: list[str]) -> Any:
+        asked.append(components)
+        raise CalendaringError("not sent in this test")
+
+    backend = await AsyncBackend.open(
+        "https://dav.example.com/", kind="caldav", features={"save-load.journal": {"support": "unsupported"}}
+    )
+    async with backend:
+        monkeypatch.setattr(backend._dav, "make_calendar", make_calendar)  # type: ignore[attr-defined]
+        with pytest.raises(UnsupportedError):
+            await backend.create_collection("journal", components=(Component.JOURNAL,))
+        assert asked == []
+        with pytest.raises(CalendaringError, match="not sent"):
+            await backend.create_collection("both", components=(Component.EVENT, Component.JOURNAL))
+        assert asked == [["VEVENT"]]
 
 
 async def test_wire_bytes_are_sent_as_given(collection: AsyncCollection, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -21,7 +21,7 @@ from urllib.parse import quote, unquote
 import icalendar
 from icalendar_searcher import Searcher
 
-from .._caldav_features import backend_capabilities, collection_capabilities
+from .._caldav_features import backend_capabilities, collection_capabilities, stored_components
 from .._caldav_io import Calendar
 from ..capabilities import Feature
 from ..errors import (
@@ -35,7 +35,7 @@ from ..errors import (
 from ..items import _items_of, _parse
 from ..loss import LossPolicy
 from ..types import BrokenObject, Component, StoredObject, SyncToken
-from .backend import Backend
+from .backend import Backend, _none_held
 from .collection import Collection
 from .dav import DAV
 
@@ -249,16 +249,21 @@ class CalDAVBackend(Backend):
         return cls(DAV(url, **options), id=backend_id, loss=loss, verify=verify)
 
     def _wrap(self, calendar: Calendar) -> CalDAVCollection:
-        components = frozenset(
+        listed = frozenset(
             Component(c) for c in self._dav.supported_components(calendar) if c in {k.value for k in Component}
         )
+        components = stored_components(self._dav.client.features, listed)
         return self.collection_class(self, calendar, name=self._dav.display_name(calendar), components=components)
 
     def collections(self) -> list[Collection]:
         return [self._wrap(c) for c in self._dav.calendars()]
 
     def _create_collection(self, name: str, components: frozenset[Component]) -> Collection:
-        return self._wrap(self._dav.make_calendar(name, sorted(c.value for c in components)))
+        # Infomaniak and CCS refuse any set naming a kind they cannot store; ask for the rest.
+        asked = stored_components(self._dav.client.features, components)
+        if components and not asked:
+            raise _none_held(components, self.id)
+        return self._wrap(self._dav.make_calendar(name, sorted(c.value for c in asked)))
 
     def close(self) -> None:
         self._dav.close()

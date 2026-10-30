@@ -8,14 +8,18 @@ from enum import Enum, StrEnum
 from types import MappingProxyType
 from typing import Any
 
+from .types import Component
+
 __all__ = [
     "BACKEND_FEATURES",
+    "COMPONENT_FEATURE",
     "EDIT_ICALENDAR_PENDING",
     "NO_EVENTS_FOR_TIME_LOG",
     "Capabilities",
     "Capability",
     "Feature",
     "Support",
+    "held_only",
 ]
 
 
@@ -79,6 +83,27 @@ BACKEND_FEATURES = frozenset({Feature.CREATE_COLLECTION, Feature.DELETE_COLLECTI
 EDIT_ICALENDAR_PENDING = "pending edit-icalendar (API_DESIGN.md Q3)"
 # Why time-log is UNSUPPORTED in a collection holding no events (entries are VEVENTs):
 NO_EVENTS_FOR_TIME_LOG = "holds no events to log time in; set time_log_collection"
+
+COMPONENT_FEATURE = {
+    Component.EVENT: Feature.COMPONENT_EVENT,
+    Component.TASK: Feature.COMPONENT_TASK,
+    Component.JOURNAL: Feature.COMPONENT_JOURNAL,
+}
+
+
+def held_only(
+    table: dict[Feature, Any], components: frozenset[Component], *, own_time_log: bool = False
+) -> dict[Feature, Any]:
+    """``table``, changed in place, for a collection holding only ``components``.
+
+    ``own_time_log``: the backend keeps time entries itself, as a tracker does, rather than as events.
+    """
+    for kind, feature in COMPONENT_FEATURE.items():
+        if kind not in components:
+            table[feature] = Support.UNSUPPORTED
+    if Component.EVENT not in components and not own_time_log:  # time entries are VEVENTs in the item's collection
+        table[Feature.TIME_LOG] = {"level": Support.UNSUPPORTED, "note": NO_EVENTS_FOR_TIME_LOG}
+    return table
 
 
 @dataclass(frozen=True)

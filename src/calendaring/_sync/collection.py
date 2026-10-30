@@ -26,7 +26,7 @@ import recurring_ical_events
 from icalendar_searcher import Searcher
 
 from .._mapping import Change, differences, plan_calendar_losses, plan_losses
-from ..capabilities import BACKEND_FEATURES, Capabilities, Feature, Support
+from ..capabilities import BACKEND_FEATURES, COMPONENT_FEATURE, Capabilities, Feature, Support
 from ..errors import (
     AlreadyExistsError,
     CalendaringError,
@@ -76,13 +76,6 @@ def _by_start(entry: TimeEntry) -> tuple[bool, float]:
     """Sort key: by start (a floating time read as local); entries without one last, by when they were logged."""
     when = entry.start or entry.logged
     return entry.start is None, when.timestamp() if when is not None else 0.0
-
-
-COMPONENT_FEATURE = {
-    Component.EVENT: Feature.COMPONENT_EVENT,
-    Component.TASK: Feature.COMPONENT_TASK,
-    Component.JOURNAL: Feature.COMPONENT_JOURNAL,
-}
 
 
 def _occurrence_now(calendar: icalendar.Calendar, item: Item) -> icalendar.Component | None:

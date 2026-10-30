@@ -8,11 +8,11 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 from urllib.parse import urlsplit
 
-from ..capabilities import Capabilities, Feature, Support
+from ..capabilities import COMPONENT_FEATURE, Capabilities, Feature, Support
 from ..errors import AmbiguousError, CalendaringError, ConfigurationError, NotFoundError, UnsupportedError
 from ..loss import LossPolicy
 from ..types import Component
-from .collection import COMPONENT_FEATURE, Collection
+from .collection import Collection
 
 if TYPE_CHECKING:
     from .workspace import Workspace

@@ -17,7 +17,7 @@ import icalendar
 from icalendar_searcher import Searcher
 
 from .._memory_store import FULL, MemoryCalendar, MemoryObject, MemoryStore, Profile
-from ..capabilities import Capabilities, Feature, Support
+from ..capabilities import Capabilities, Feature, Support, held_only
 from ..errors import ConflictError, InvalidDataError
 from ..items import Item
 from ..loss import LossPolicy
@@ -135,15 +135,9 @@ class AsyncMemoryBackend(AsyncBackend):
 
     def _collection_capabilities(self, components: frozenset[Component]) -> Capabilities:
         """The profile's table, narrowed to the components this collection holds."""
-        table: dict[Feature, Any] = self.profile.collection_capabilities
-        for kind, feature in (
-            (Component.EVENT, Feature.COMPONENT_EVENT),
-            (Component.TASK, Feature.COMPONENT_TASK),
-            (Component.JOURNAL, Feature.COMPONENT_JOURNAL),
-        ):
-            if kind not in components:
-                table[feature] = Support.UNSUPPORTED
-        return Capabilities(table)
+        # A profile without events (a tracker) keeps its own time log, if it has one.
+        own = Component.EVENT not in self.profile.components
+        return Capabilities(held_only(self.profile.collection_capabilities, components, own_time_log=own))
 
     async def collections(self) -> list[AsyncCollection]:
         return [self.collection_class(self, c) for c in self.store.calendars.values()]
