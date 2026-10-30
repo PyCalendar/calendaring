@@ -13,6 +13,7 @@ import pytest
 from icalendar_searcher import Searcher
 
 from calendaring import (
+    AlreadyExistsError,
     AsyncBackend,
     AsyncCollection,
     AsyncTask,
@@ -36,7 +37,7 @@ from calendaring import (
     VerificationError,
 )
 from calendaring.loss import WARN
-from calendaring.memory import TRACKER, AsyncMemoryBackend, AsyncMemoryCollection, MemoryObject
+from calendaring.memory import FULL, TRACKER, AsyncMemoryBackend, AsyncMemoryCollection, MemoryObject, Profile
 from calendaring.types import StoredObject
 
 
@@ -234,6 +235,167 @@ async def test_a_move_that_loses_the_race_removes_its_copy() -> None:
     with pytest.raises(ConflictError):
         await source.move(task, target)
     assert await target.search() == []
+
+
+def moving(order: str) -> Profile:
+    """A backend whose move needs ``order``: what the CalDAV backend declares from a server's hints."""
+    return Profile(
+        f"move-{order}",
+        {**FULL.capabilities, Feature.MOVE: {"level": Support.EMULATED, "order": order}},
+        FULL.components,
+    )
+
+
+def _uid(calendar: icalendar.Calendar) -> str:
+    return str(next(c for c in calendar.subcomponents if "UID" in c)["UID"])
+
+
+class OneUidPerAccount(AsyncMemoryCollection):
+    """Refuses a UID another calendar of the account holds, as CCS, Cyrus and Ox do."""
+
+    async def _create(self, calendar: icalendar.Calendar, *, native_id: str | None, wire: bytes | None) -> StoredObject:
+        for other in self._backend.store.calendars.values():
+            if other is not self.store and any(o.uid == _uid(calendar) for o in other.objects.values()):
+                raise AlreadyExistsError("the UID is in another calendar", taken="uid")
+        return await super()._create(calendar, native_id=native_id, wire=wire)
+
+
+class CopyIsMove(AsyncMemoryCollection):
+    """Saving a UID another calendar holds moves it here, as Zimbra does."""
+
+    async def _create(self, calendar: icalendar.Calendar, *, native_id: str | None, wire: bytes | None) -> StoredObject:
+        for other in self._backend.store.calendars.values():
+            for obj in [o for o in other.objects.values() if o.uid == _uid(calendar)]:
+                del other.objects[obj.native_id]
+        return await super()._create(calendar, native_id=native_id, wire=wire)
+
+
+@pytest.mark.parametrize(
+    ("collection_class", "order"), [(OneUidPerAccount, "delete-first"), (CopyIsMove, "add-may-move")]
+)
+async def test_a_move_where_a_uid_cannot_be_in_two_calendars(
+    collection_class: type[AsyncMemoryCollection], order: str
+) -> None:
+    backend = backend_of(collection_class, order)
+    source = await backend.collection("default")
+    target = await backend.create_collection("target", components=[Component.TASK])
+    task = await source.add_task(summary="renew the passport")
+    moved = await source.move(task, target)
+    assert moved.collection is target
+    assert await source.search() == []
+    assert [t.uid for t in await target.tasks()] == [task.uid]
+
+
+async def test_a_move_that_deleted_first_puts_the_item_back_when_the_copy_fails() -> None:
+    class Refusing(AsyncMemoryCollection):
+        async def _create(
+            self, calendar: icalendar.Calendar, *, native_id: str | None, wire: bytes | None
+        ) -> StoredObject:
+            if self.id == "target":
+                raise BackendError("refused")
+            return await super()._create(calendar, native_id=native_id, wire=wire)
+
+    class Backend(AsyncMemoryBackend):
+        collection_class = Refusing
+
+    backend = Backend(moving("delete-first"))
+    source = await backend.collection("default")
+    target = await backend.create_collection("target", components=[Component.TASK])
+    task = await source.add_task(summary="renew the passport")
+    with pytest.raises(BackendError):
+        await source.move(task, target)
+    assert [t.uid for t in await source.tasks()] == [task.uid]
+
+
+def backend_of(collection_class: type[AsyncMemoryCollection], order: str) -> AsyncMemoryBackend:
+    class Backend(AsyncMemoryBackend):
+        pass
+
+    Backend.collection_class = collection_class
+    return Backend(moving(order))
+
+
+class DropsTheCopy(AsyncMemoryCollection):
+    """Answers a save of a UID another calendar holds as stored, and drops it (`silently-ignored`)."""
+
+    async def _create(self, calendar: icalendar.Calendar, *, native_id: str | None, wire: bytes | None) -> StoredObject:
+        stored = await super()._create(calendar, native_id=native_id, wire=wire)
+        if any(
+            o.uid == _uid(calendar)
+            for c in self._backend.store.calendars.values()
+            if c is not self.store
+            for o in c.objects.values()
+        ):
+            del self.store.objects[stored.native_id]
+        return stored
+
+
+async def test_a_dropped_copy_leaves_the_original_where_it_was() -> None:
+    backend = backend_of(DropsTheCopy, "add-may-move")
+    source = await backend.collection("default")
+    target = await backend.create_collection("target", components=[Component.TASK])
+    task = await source.add_task(summary="renew the passport")
+    with pytest.raises(BackendError):
+        await source.move(task, target)
+    assert [t.uid for t in await source.tasks()] == [task.uid]
+
+
+class CopiesThenConflicts(AsyncMemoryCollection):
+    """Keeps the copy, then refuses the delete of the original with a conflict."""
+
+    async def _delete(self, native_id: str, *, etag: str | None) -> None:
+        if self.id != "default":
+            return await super()._delete(native_id, etag=etag)
+        raise ConflictError(f"{native_id!r} changed since it was read")
+
+
+async def test_a_conflict_after_a_copy_that_may_move_keeps_the_copy() -> None:
+    backend = backend_of(CopiesThenConflicts, "add-may-move")
+    source = await backend.collection("default")
+    target = await backend.create_collection("target", components=[Component.TASK])
+    task = await source.add_task(summary="renew the passport")
+    with pytest.raises(ConflictError):
+        await source.move(task, target)
+    assert [t.uid for t in await target.tasks()] == [task.uid], "the copy may be the only one"
+
+
+async def test_a_lost_item_is_reported_when_neither_copy_nor_restore_works() -> None:
+    class RefusesEverything(AsyncMemoryCollection):
+        refusing: ClassVar[bool] = False
+
+        async def _create(
+            self, calendar: icalendar.Calendar, *, native_id: str | None, wire: bytes | None
+        ) -> StoredObject:
+            if self.refusing:
+                raise BackendError("refused")
+            return await super()._create(calendar, native_id=native_id, wire=wire)
+
+    backend = backend_of(RefusesEverything, "delete-first")
+    source = await backend.collection("default")
+    target = await backend.create_collection("target", components=[Component.TASK])
+    task = await source.add_task(summary="renew the passport")
+    RefusesEverything.refusing = True
+    with pytest.raises(BackendError) as info:
+        await source.move(task, target)
+    assert any(task.uid in note and "neither" in note for note in info.value.__notes__)
+
+
+async def test_an_occurrence_is_not_moved_by_deleting_first() -> None:
+    backend = backend_of(OneUidPerAccount, "delete-first")
+    source = await backend.collection("default")
+    target = await backend.create_collection("target", components=[Component.EVENT])
+    standup = Event.new(
+        summary="stand-up", start=datetime(2026, 11, 2, 9, tzinfo=UTC), end=datetime(2026, 11, 2, 10, tzinfo=UTC)
+    )
+    standup.component.add("RRULE", {"FREQ": "DAILY", "COUNT": 3})
+    await source.add(standup)
+    [occurrence, *_] = await source.events(
+        start=datetime(2026, 11, 2, tzinfo=UTC), end=datetime(2026, 11, 5, tzinfo=UTC), expand=True
+    )
+    with pytest.raises(UnsupportedError):
+        await source.move(occurrence, target)
+    assert len(await source.events()) == 1
+    assert await target.events() == []
 
 
 async def test_a_token_from_another_backend_is_refused() -> None:
