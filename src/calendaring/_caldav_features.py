@@ -49,6 +49,7 @@ FROM_SERVER = {
     Feature.TASK_RELATIONS_PARENT: "save-load.icalendar.related-to",
     Feature.TASK_RELATIONS_DEPENDS_ON: "save-load.icalendar.related-to",
     Feature.TIMEZONES: "save-load.event.timezone",
+    Feature.TASK_UNCOMPLETE: "save-load.todo.uncomplete",
 }
 
 COMPONENT_FROM_SERVER = {

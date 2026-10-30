@@ -1225,6 +1225,7 @@ initial set:
 | `recurrence`, `recurrence.edit-this-and-future` | stores a recurrence set: `RRULE`, `RDATE`, `EXDATE` and the overrides (`RECURRENCE-ID`); `UNSUPPORTED` drops all four, overrides included; [§3.7 Recurrence](#37-recurrence) |
 | `recurrence.edit-occurrence` | `save(occurrence)` merges it into the stored object ([§3.7](#37-recurrence)); `UNSUPPORTED` where the merge is not available yet (Q3) |
 | `task.complete-recurring` | `complete()` on a recurring task or one occurrence of it ([§3.7](#37-recurrence)) |
+| `task.uncomplete` | `uncomplete()` makes a completed task pending again; `UNSUPPORTED` where the server keeps it completed (GMX) |
 | `move` | [§2.3 Collection](#23-collection) |
 | `task.status`, `task.priority`, `task.percent-complete` | `LOSSY` when values are mapped |
 | `task.start`, `task.due`, `task.completed`, `task.planned`, `task.estimate` | |

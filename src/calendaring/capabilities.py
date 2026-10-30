@@ -62,6 +62,7 @@ class Feature(StrEnum):
     TASK_START = "task.start"
     TASK_DUE = "task.due"
     TASK_COMPLETED = "task.completed"
+    TASK_UNCOMPLETE = "task.uncomplete"
     TASK_COMPLETE_RECURRING = "task.complete-recurring"
     TASK_PLANNED = "task.planned"
     TASK_ESTIMATE = "task.estimate"

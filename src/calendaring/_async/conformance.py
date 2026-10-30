@@ -908,6 +908,9 @@ class AsyncConformance:
         assert str(read.component["STATUS"]) == "COMPLETED"
         if level(collection, Feature.TASK_COMPLETED) is not Support.UNSUPPORTED:
             assert "COMPLETED" in read.component
+        if level(collection, Feature.TASK_UNCOMPLETE) is Support.UNSUPPORTED:
+            await self.assert_unsupported(collection, Feature.TASK_UNCOMPLETE, lambda: task.uncomplete())
+            return
         await task.uncomplete()
         read = await collection.reload(task)
         assert str(read.component["STATUS"]) == "NEEDS-ACTION"

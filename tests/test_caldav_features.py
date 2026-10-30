@@ -105,6 +105,12 @@ def test_no_time_log_where_the_server_strips_related_to() -> None:
     assert "RELATED-TO" in (events[Feature.TIME_LOG].note or "")
 
 
+def test_no_uncomplete_where_the_server_keeps_a_task_completed() -> None:
+    """GMX answers the PUT of a pending task with 204, and loads it back completed."""
+    server = features({"save-load": {"support": "full"}, "save-load.todo.uncomplete": {"support": "unsupported"}})
+    assert collection_capabilities(server, ALL).level(Feature.TASK_UNCOMPLETE) is Support.UNSUPPORTED
+
+
 def test_sync_token_is_used_only_where_deletions_are_reported_too() -> None:
     assert collection_capabilities(hinted(sync_token="full"), ALL).details(Feature.CHANGES) == {"method": "sync-token"}
     broken_delete = hinted(**{"sync-token": "full", "sync-token.delete": "unsupported"})

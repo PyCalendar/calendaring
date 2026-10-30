@@ -244,6 +244,11 @@ def test_a_task_is_completed_and_uncompleted(tasklist: Collection) -> None:
     assert tasklist.reload(task).component.status == "COMPLETED"
 
     ## Ticked off by mistake: the milk is still in the shop
+    if unsupported(tasklist, Feature.TASK_UNCOMPLETE):
+        # GMX keeps a task completed: it says so, rather than seeming to reopen it
+        with pytest.raises(UnsupportedError):
+            task.uncomplete()
+        return
     task.uncomplete()
     assert [t.uid for t in tasklist.tasks(include_completed=False)] == [task.uid]
 

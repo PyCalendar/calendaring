@@ -118,6 +118,7 @@ MINIMAL = Profile(
         Feature.ATTENDEES: U,
         Feature.TASK_DUE: U,
         Feature.TASK_COMPLETED: U,
+        Feature.TASK_UNCOMPLETE: U,
         Feature.TASK_RELATIONS_PARENT: U,
         Feature.TASK_RELATIONS_DEPENDS_ON: U,
     },
