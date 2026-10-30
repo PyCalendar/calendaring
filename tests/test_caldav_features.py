@@ -161,3 +161,47 @@ def test_a_calendar_is_made_lossily_where_the_server_cannot_store_a_component() 
     capability = backend_capabilities(server)[Feature.CREATE_COLLECTION]
     assert capability.level is Support.LOSSY
     assert "VJOURNAL" in (capability.note or "")
+
+
+def move_of(**hints: str) -> Any:
+    return collection_capabilities(hinted(save_load="full", **hints), ALL)[Feature.MOVE]
+
+
+def test_a_move_copies_then_deletes_where_a_uid_may_be_in_two_calendars() -> None:
+    move = move_of(**{"save.duplicate-uid.cross-calendar": "full"})
+    assert move.level is Support.EMULATED
+    assert "order" not in move.details
+
+
+def test_a_move_deletes_first_where_the_copy_would_be_refused() -> None:
+    # CCS, Cyrus, Ox: the same UID in a second calendar is an error
+    move = move_of(**{"save.duplicate-uid.cross-calendar": "ungraceful"})
+    assert move.level is Support.EMULATED
+    assert move.details["order"] == "delete-first"
+
+
+def test_a_move_checks_what_the_copy_did_where_the_server_moves_or_ignores_it() -> None:
+    # Zimbra moves the original when the copy is saved
+    move = move_of(**{"save.duplicate-uid.cross-calendar": "unsupported"})
+    assert move.level is Support.EMULATED
+    assert move.details["order"] == "add-may-move"
+
+
+def test_a_move_deletes_first_where_the_copy_would_be_dropped() -> None:
+    server = features(
+        {
+            "save-load": {"support": "full"},
+            "save.duplicate-uid.cross-calendar": {"support": "unsupported", "behaviour": "silently-ignored"},
+        }
+    )
+    assert collection_capabilities(server, ALL)[Feature.MOVE].details["order"] == "delete-first"
+
+
+def test_a_move_is_impossible_where_neither_a_copy_nor_a_reused_uid_is_allowed() -> None:
+    hints = {"save.duplicate-uid.cross-calendar": "ungraceful", "save-load.reuse-deleted-uid": "unsupported"}
+    assert move_of(**hints).level is Support.UNSUPPORTED
+
+
+def test_a_copy_that_moves_needs_no_reused_uid() -> None:
+    move = move_of(**{"save.duplicate-uid.cross-calendar": "unsupported", "save-load.reuse-deleted-uid": "unsupported"})
+    assert move.details["order"] == "add-may-move"

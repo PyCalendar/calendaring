@@ -64,7 +64,6 @@ FIXED: dict[Feature, Any] = {
     Feature.SEARCH_TIME_RANGE: E,
     Feature.SEARCH_TEXT: E,
     Feature.CHANGES: {"level": E, "method": "etag-listing"},
-    Feature.MOVE: {"level": E, "note": "added to the target, then deleted here"},
     Feature.IDENTITY_FOREIGN_ID: {"level": U, "note": "the UID is native"},
     Feature.RECURRENCE_EDIT_OCCURRENCE: {"level": U, "note": EDIT_ICALENDAR_PENDING},
     Feature.RECURRENCE_EDIT_THIS_AND_FUTURE: U,
@@ -133,6 +132,19 @@ def _table(features: Any) -> dict[Feature, Any]:
     return table
 
 
+def _move(features: Any) -> dict[str, Any]:
+    """Copy, then delete; unless the server keeps a UID in one calendar only (``save.duplicate-uid.cross-calendar``)."""
+    hint = features.is_supported("save.duplicate-uid.cross-calendar", dict) if _hinted(features) else {}
+    cross = str(hint.get("support", "unknown"))
+    if cross in ("full", "unknown"):
+        return {"level": E, "note": "added to the target, then deleted here"}
+    if cross == "unsupported" and hint.get("behaviour") != "silently-ignored":  # Zimbra moves the original
+        return {"level": E, "order": "add-may-move", "note": "added to the target, then deleted here if still there"}
+    if _level(features, "save-load.reuse-deleted-uid") is U:
+        return {"level": U, "note": "the UID can be neither in two calendars at once nor reused once deleted"}
+    return {"level": E, "order": "delete-first", "note": "deleted here, then added to the target"}
+
+
 def _changes(features: Any) -> dict[str, Any]:
     """A native change feed where the server has a reliable one; else the etag listing, which always works.
 
@@ -181,6 +193,7 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
     """The server's table, narrowed to what the calendar says it holds."""
     table = {f: v for f, v in _table(features).items() if f not in BACKEND_FEATURES}
     table[Feature.CHANGES] = _changes(features)
+    table[Feature.MOVE] = _move(features)
     table[Feature.SEARCH_TIME_RANGE] = _time_range(features)
     for kind, (feature, name) in COMPONENT_FROM_SERVER.items():
         if kind in components:

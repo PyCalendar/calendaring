@@ -29,6 +29,7 @@ from .._mapping import Change, differences, plan_calendar_losses, plan_losses
 from ..capabilities import BACKEND_FEATURES, COMPONENT_FEATURE, Capabilities, Feature, Support
 from ..errors import (
     AlreadyExistsError,
+    BackendError,
     CalendaringError,
     ConflictError,
     InvalidDataError,
@@ -1047,7 +1048,11 @@ class Collection(ABC):
     def move(
         self, item: Item, target: Collection, *, loss: LossPolicy | None = None, verify: bool | None = None
     ) -> SyncItem:
-        """Move to ``target``; between backends, add there and then delete here (``EMULATED``, not atomic)."""
+        """Move to ``target``; between backends, add there and then delete here (``EMULATED``, not atomic).
+
+        Where a UID may be in one calendar only, the ``move`` capability's ``order`` says what to do instead:
+        ``delete-first`` (the copy would be refused), or ``add-may-move`` (the copy may move the original).
+        """
         with self._context():
             self._require_writable(item)
             self._require(Feature.MOVE)
@@ -1060,12 +1065,38 @@ class Collection(ABC):
                     return target._one(stored, written=True)
             if item.etag is not None and (self._fetch(item.native_id)).etag != item.etag:
                 raise ConflictError(f"{item.native_id!r} changed since it was read")
+            # Where a UID may be in one calendar only, the server refuses the copy, or moves the original.
+            order = self.capabilities.details(Feature.MOVE).get("order")
+            if order == "delete-first":
+                if item.is_occurrence:  # deleting it writes an EXDATE: the UID stays here, and the copy is refused
+                    raise UnsupportedError(Feature.MOVE, "an occurrence, where the copy must be made after the delete")
+                self.delete(item)
+                try:
+                    return target.add(item.as_data(), loss=loss, verify=verify)
+                except CalendaringError as exc:
+                    try:
+                        self.add(item.as_data(), loss=loss, verify=False)
+                    except CalendaringError:
+                        exc.add_note(
+                            f"{item.uid!r} was deleted here and could not be put back: it is in neither collection"
+                        )
+                    raise
             moved = target.add(item.as_data(), loss=loss, verify=verify)
+            if order == "add-may-move":
+                try:
+                    target._fetch(moved.native_id)  # type: ignore[arg-type]  # add() returns a stored item
+                except NotFoundError:
+                    raise BackendError(f"{item.uid!r} was not stored in {target.id!r}; it is still here") from None
             try:
                 self.delete(item)
+            except NotFoundError:
+                if order != "add-may-move":
+                    raise
+                # the copy moved it: Zimbra still answers a read of the old URL, so only the delete tells
             except ConflictError:
-                with suppress(CalendaringError):  # best effort: the conflict is what to report
-                    target.delete(moved, overwrite=True)
+                if order != "add-may-move":  # there, the copy may be the only one
+                    with suppress(CalendaringError):  # best effort: the conflict is what to report
+                        target.delete(moved, overwrite=True)
                 raise
             return moved
 

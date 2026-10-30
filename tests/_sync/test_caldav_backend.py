@@ -103,6 +103,59 @@ def test_a_calendar_is_not_asked_for_what_the_server_cannot_store(monkeypatch: p
         assert asked == [["VEVENT"]]
 
 
+def test_a_rename_that_moves_the_calendar_follows_it(
+    collection: Collection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Zimbra names a calendar's URL after its display name, so a rename moves the calendar."""
+    backend = collection._backend
+    moved_to = backend.create_collection("moved-to", components=(Component.TASK,))
+    dav = backend._dav  # type: ignore[attr-defined]
+    calendars, set_display_name = dav.calendars, dav.set_display_name
+
+    def renamed_elsewhere(calendar: Any, name: str) -> None:
+        set_display_name(moved_to.calendar, name)  # type: ignore[attr-defined]
+
+    old_url = collection.url  # type: ignore[attr-defined]
+
+    def without_the_old_url() -> list[Any]:
+        return [c for c in calendars() if str(c.url).rstrip("/") + "/" != old_url]
+
+    monkeypatch.setattr(dav, "set_display_name", renamed_elsewhere)
+    monkeypatch.setattr(dav, "calendars", without_the_old_url)
+    old = collection.id
+    collection.set_name("Renamed")
+    assert collection.id == moved_to.id != old
+    assert (backend.collection(collection.id)).name == "Renamed"
+    monkeypatch.undo()
+    (backend.collection(old)).delete_collection()  # still there in this simulation
+
+
+def test_a_rename_does_not_guess_between_calendars_of_the_same_name(
+    collection: Collection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = collection._backend
+    made = [backend.create_collection(name, components=(Component.TASK,)) for name in ("one", "two")]
+    dav = backend._dav  # type: ignore[attr-defined]
+    calendars, set_display_name = dav.calendars, dav.set_display_name
+    old_url = collection.url  # type: ignore[attr-defined]
+
+    def renamed_twice(calendar: Any, name: str) -> None:
+        for other in made:
+            set_display_name(other.calendar, name)  # type: ignore[attr-defined]
+
+    def without_the_old_url() -> list[Any]:
+        return [c for c in calendars() if str(c.url).rstrip("/") + "/" != old_url]
+
+    monkeypatch.setattr(dav, "set_display_name", renamed_twice)
+    monkeypatch.setattr(dav, "calendars", without_the_old_url)
+    old = collection.id
+    collection.set_name("Renamed")
+    assert collection.id == old
+    monkeypatch.undo()
+    for other in made:
+        other.delete_collection()
+
+
 def test_wire_bytes_are_sent_as_given(collection: Collection, monkeypatch: pytest.MonkeyPatch) -> None:
     # icalendar would fold this line.  Xandikos refolds what it stores, so what is checked is the PUT.
     client = collection._backend._dav.client  # type: ignore[attr-defined]

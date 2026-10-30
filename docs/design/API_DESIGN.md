@@ -395,7 +395,9 @@ class AsyncCollection:
 backend reported when it listed the collection. Assigning to them would
 have to write to the server as a side effect, so renaming is an explicit
 `set_name()`, which raises `UnsupportedError` where the backend cannot
-rename (a feed, a single `.ics` file). The same goes for items: there is no
+rename (a feed, a single `.ics` file). A server that names a calendar's URL
+after its display name (Zimbra) moves the calendar on a rename, and
+`set_name()` then updates `id` too. The same goes for items: there is no
 `collection.save()` without an argument, and no autosave (but see
 [§12](#12-beyond-the-funded-scope-implicit-synchronization)). This follows caldav, which settled on
 methods for anything that talks to the server. *Proposed by the author in
@@ -485,10 +487,21 @@ for `PARENT`, the children pointing back), as caldav's `get_relatives()`
 does. plann calls it 16 times, so it has to be here. Relatives outside
 this collection are looked up across the backend.
 
-**`move`** within one backend uses its own move where it has one
-(CalDAV `MOVE`); between backends it is `add` to the target, then `delete`
-from the source, declared `EMULATED` because it is not atomic: a failure
-between the two leaves the item in both places, never in neither.
+**`move`** within one backend uses its own move where it has one; between
+backends, and on CalDAV until caldav has a `move()` using WebDAV `MOVE`
+([caldav #841](https://github.com/python-caldav/caldav/issues/841)), it is
+`add` to the target, then `delete` from the source, declared `EMULATED`
+because it is not atomic: a failure between the two leaves the item in both
+places, never in neither. Where a server keeps a UID in one calendar only
+(caldav's `save.duplicate-uid.cross-calendar`), the capability's `order`
+says what to do instead: `delete-first` where the copy would be refused
+(CCS, Cyrus, Ox), putting the item back if the add then fails (and saying so
+on the error where that fails too), and `add-may-move` where saving the copy
+moves the original (Zimbra), checking that the target holds the copy before
+the original is deleted. `delete-first` needs the deleted UID to be reusable
+(`save-load.reuse-deleted-uid`); where it is not, `move` is `UNSUPPORTED`.
+An occurrence cannot be moved by deleting first: deleting it only excludes
+it from its series, whose UID stays.
 
 **How it fits Gitea:** a repository is a collection with `components =
 {TASK}`; `events()` returns an empty list rather than raising (there are
