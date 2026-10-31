@@ -26,6 +26,9 @@ from calendaring import (
 
 pytest.importorskip("caldav")
 
+from caldav.collection import Calendar  # noqa: E402
+from caldav.lib.url import URL  # noqa: E402
+
 from calendaring._async.caldav import _name_of  # noqa: E402
 from calendaring._caldav_io import _resource  # noqa: E402
 
@@ -68,6 +71,23 @@ async def test_an_incomplete_incremental_sync_asks_to_start_again(
     monkeypatch.setattr(collection._backend._dav, "sync", incomplete)  # type: ignore[attr-defined]
     with pytest.raises(SyncTokenError):
         await collection.changes(token)
+
+
+async def test_a_listed_calendar_that_is_not_there_is_left_out(
+    collection: AsyncCollection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bedework lists a ``tasks/`` it then answers 404 for; a calendar deleted meanwhile looks the same."""
+    caldav_collection: Any = collection
+    backend = caldav_collection._backend
+    real = await backend._dav.calendars()
+    ghost = Calendar(client=backend._dav.client, url=URL.objectify(caldav_collection.url).join("../ghost/"))
+    monkeypatch.setattr(backend._dav, "calendars", lambda: _returning([*real, ghost]))
+    assert collection.id in [c.id for c in await backend.collections()]
+    assert len(await backend.collections()) == len(real)
+
+
+async def _returning(value: Any) -> Any:
+    return value
 
 
 async def test_a_token_is_bearer_auth() -> None:

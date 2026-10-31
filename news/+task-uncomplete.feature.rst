@@ -1,0 +1,1 @@
+A new capability, ``task.uncomplete``, says whether a completed task can be made pending again.  GMX keeps a reopened task completed, so there ``uncomplete()`` raises ``UnsupportedError`` instead of seeming to work.

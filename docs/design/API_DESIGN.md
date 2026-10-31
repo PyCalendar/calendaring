@@ -1214,6 +1214,7 @@ initial set:
 | `component.event`, `component.task`, `component.journal` | can hold that component |
 | `create-collection`, `delete-collection` | backend-level; see below |
 | `collection.set-name` | `set_name()` |
+| `collection.mixed` | one collection holds several component kinds; `UNSUPPORTED` where each holds one (CCS, a task tracker), and `create_collection()` then makes one for the first kind asked, in sorted order, of those the backend holds |
 | `search.server-side`, `search.time-range`, `search.text` | how much the server filters; never affects results ([§4 Search](#4-search)) |
 | `changes` | `changes()`: `FULL` with a native token, `EMULATED` by listing |
 | `changes.known` | `changes(known=...)` fetches only what changed: `FULL` where etags can be listed without content (CalDAV, vdir), `EMULATED` where everything is read and compared (JMAP, single `.ics` file, feed, Gitea) |
@@ -1225,6 +1226,7 @@ initial set:
 | `recurrence`, `recurrence.edit-this-and-future` | stores a recurrence set: `RRULE`, `RDATE`, `EXDATE` and the overrides (`RECURRENCE-ID`); `UNSUPPORTED` drops all four, overrides included; [§3.7 Recurrence](#37-recurrence) |
 | `recurrence.edit-occurrence` | `save(occurrence)` merges it into the stored object ([§3.7](#37-recurrence)); `UNSUPPORTED` where the merge is not available yet (Q3) |
 | `task.complete-recurring` | `complete()` on a recurring task or one occurrence of it ([§3.7](#37-recurrence)) |
+| `task.uncomplete` | `uncomplete()` makes a completed task pending again; `UNSUPPORTED` where the server keeps it completed (GMX) |
 | `move` | [§2.3 Collection](#23-collection) |
 | `task.status`, `task.priority`, `task.percent-complete` | `LOSSY` when values are mapped |
 | `task.start`, `task.due`, `task.completed`, `task.planned`, `task.estimate` | |
@@ -1240,7 +1242,11 @@ keep the requested components, as caldav says of SOGo (a calendar for all
 of them), Bedework 5 (one for events only) and GMX. No loss policy applies, as nothing
 is written; the collection's `components` say what it holds. A component
 the server is known not to store is not asked for at all, and makes it
-`LOSSY` too: Infomaniak and CCS refuse any calendar naming `VJOURNAL`. A collection
+`LOSSY` too: Infomaniak and CCS refuse any calendar naming `VJOURNAL`.  Where `collection.mixed` is
+`UNSUPPORTED` (CCS refuses a calendar for events and tasks; Bedework 3,
+Zimbra and Ox misreport one), a collection is made for one kind only, and
+that is `LOSSY` as well.  The conformance suite then gives each test a
+collection for the kind it writes. A collection
 that would hold none of what was asked is deleted again where it can be,
 and refused with `UnsupportedError` for the first requested component in
 sorted order.

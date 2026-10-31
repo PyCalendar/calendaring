@@ -24,7 +24,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import caldav_server_names, running_caldav_server
+from conftest import caldav_server_names, running_caldav_server, wait_out_search_cache
 from icalendar_searcher import Searcher
 
 from calendaring import (
@@ -76,7 +76,9 @@ def open_backend(where: str, directory: Path, request: pytest.FixtureRequest) ->
             directory.mkdir()
             return Backend.open(str(directory / "calendar.ics"))
     server = running_caldav_server(request, where)
-    return Backend.open(server.url, kind="caldav", **server.options)
+    backend = Backend.open(server.url, kind="caldav", **server.options)
+    wait_out_search_cache(backend, request.getfixturevalue("monkeypatch"))
+    return backend
 
 
 # Next week: a fixed date would one day be past every server's time range.
@@ -242,6 +244,12 @@ def test_a_task_is_completed_and_uncompleted(tasklist: Collection) -> None:
     assert tasklist.reload(task).component.status == "COMPLETED"
 
     ## Ticked off by mistake: the milk is still in the shop
+    ## (or maybe it was spilled on the way?)
+    if unsupported(tasklist, Feature.TASK_UNCOMPLETE):
+        # GMX keeps a task completed: it says so, rather than seeming to reopen it
+        with pytest.raises(UnsupportedError):
+            task.uncomplete()
+        return
     task.uncomplete()
     assert [t.uid for t in tasklist.tasks(include_completed=False)] == [task.uid]
 
@@ -303,19 +311,25 @@ def test_a_recurring_event_is_expanded_into_occurrences(calendar: Collection) ->
 
 
 def test_tasks_are_found_by_category_and_by_text(tasklist: Collection) -> None:
+
+    ## The unsupported test - either it's supported or it should raise the right error
     if unsupported(tasklist, Feature.CATEGORIES):
         with pytest.raises(LossyWriteError):
             tasklist.add_task(summary="Write the report", categories=["work"])
         # Not stored without its category, either.
         assert tasklist.tasks() == []
         return
+
+    ## Let's add some tasks to the tasklist ...
     tasklist.add_task(summary="Write the report", categories=["work"])
     tasklist.add_task(summary="Book the dentist", categories=["home"])
 
+    ## ... and then search for them by category ...
     by_category = Searcher(todo=True)
     by_category.add_property_filter("CATEGORIES", "work")
     assert summaries(tasklist.search(by_category)) == ["Write the report"]
 
+    ## and by summary
     by_text = Searcher(todo=True)
     by_text.add_property_filter("SUMMARY", "dentist", operator="contains")
     assert summaries(tasklist.search(by_text)) == ["Book the dentist"]
@@ -323,29 +337,51 @@ def test_tasks_are_found_by_category_and_by_text(tasklist: Collection) -> None:
 
 def test_changes_tells_a_sync_client_what_happened(tasklist: Collection) -> None:
     """What a sync tool does: take a token, come back later, and get only the news."""
+
+    ## Populate the task list with some tasks
     tasklist.add_task(summary="Kept")
+    early = tasklist.add_task(summary="Edited early")
     edited = tasklist.add_task(summary="Edited")
     deleted = tasklist.add_task(summary="Deleted")
+
+    ## again, ensure the proper exception is raised if the backend has
+    ## no change feed
     if unsupported(tasklist, Feature.CHANGES):
         with pytest.raises(UnsupportedError):
             tasklist.changes()
         return
+
+    ## A change made before the token was taken is old news
+    early.component.summary = "Edited early, and then some"
+    early.save()
+
+    ## The token is the server's sync-token, or else a snapshot of every
+    ## etag; where the server's tokens are unreliable (e.g. time-based),
+    ## the library uses the etag snapshot.
     token = tasklist.changes().token
 
+    ## Edit one, delete one, add one
     edited.component.summary = "Edited, and then some"
     edited.save()
     deleted.delete()
+    added = tasklist.add_task(summary="Added")
 
-    # The task left alone is not news.
+    ## Fetch the changes
     news = tasklist.changes(token)
-    assert [i.uid for i in news.changed] == [edited.uid]
+
+    ## news.changed and news.deleted should contain
+    ## exactly the elements that were changed/deleted and nothing more
+    assert sorted(i.uid for i in news.changed) == sorted([edited.uid, added.uid])
     assert news.deleted == [deleted.native_id]
 
 
 def test_a_stale_copy_cannot_overwrite_a_newer_one(tasklist: Collection) -> None:
     """Two clients edit the same task: the second one to save is told, not silently overwritten."""
+
+    ## A backend that overwrites by design has no refusal to check
     if unsupported(tasklist, Feature.WRITE_CONDITIONAL):
         pytest.skip("the backend overwrites by design, so there is no refusal to check")
+
     tasklist.add_task(summary="Shared task")
     [mine] = tasklist.tasks()
     [theirs] = tasklist.tasks()
@@ -361,23 +397,63 @@ def test_a_stale_copy_cannot_overwrite_a_newer_one(tasklist: Collection) -> None
 
 def test_a_task_is_moved_to_another_list(tasklist: Collection, other_tasklist: Collection) -> None:
     task = tasklist.add_task(summary="Renew the passport")
+
+    ## Not all task lists support the move operation
     if unsupported(tasklist, Feature.MOVE):
         with pytest.raises(UnsupportedError):
             tasklist.move(task, other_tasklist)
         assert [t.uid for t in tasklist.tasks()] == [task.uid]
         assert other_tasklist.tasks() == []
         return
+
+    ## Oops.  The tasklist is my company work tasklist, renewing the passport
+    ## should go into my personal other_tasklist.  Let's move it ...
     tasklist.move(task, other_tasklist)
 
     assert tasklist.tasks() == []
-    # By summary, not UID: a tracker gives what it moves a new identity, as moving an issue does.
+    ## By summary, not UID: a tracker gives what it moves a new identity, as moving an issue does.
     assert summaries(other_tasklist.tasks()) == ["Renew the passport"]
+
+    ## (Moving it to a task list on another backend: the next story)
+
+
+def test_a_task_is_moved_to_another_backend(
+    tasklist: Collection, tmp_path: Path, request: pytest.FixtureRequest
+) -> None:
+    """From one backend to a task list kept in local files: not atomic, one step after the other."""
+    task = tasklist.add_task(summary="Renew the passport")
+    with open_backend("files, one collection directory", tmp_path / "personal", request) as personal:
+        [personal_tasks] = personal.collections()
+
+        ## Not all task lists support the move operation
+        if unsupported(tasklist, Feature.MOVE):
+            with pytest.raises(UnsupportedError):
+                tasklist.move(task, personal_tasks)
+            assert [t.uid for t in tasklist.tasks()] == [task.uid]
+            assert personal_tasks.tasks() == []
+            return
+
+        ## Between backends nothing is atomic: the task is added to the
+        ## target and deleted here, one after the other
+        moved = tasklist.move(task, personal_tasks)
+        assert moved.collection is personal_tasks
+        assert moved.uid == task.uid
+
+        assert tasklist.tasks() == []
+        assert summaries(personal_tasks.tasks()) == ["Renew the passport"]
 
 
 @pytest.mark.checks_refusal
 def test_time_is_logged_against_a_task(tasklist: Collection, calendar: Collection) -> None:
     """Roadmap 1.6: time entries are events, in the task's own collection or in a calendar beside it."""
+    ## Some systems have no task lists: there is no task to log time against.
+    if unsupported(tasklist, Feature.COMPONENT_TASK):
+        with pytest.raises(UnsupportedError):
+            tasklist.add_task(summary="Fix the bike")
+        return
+
     task = tasklist.add_task(summary="Fix the bike")
+
     if unsupported(tasklist, Feature.TIME_LOG):
         # A task list holding no events logs time in the calendar.
         tasklist.time_log_collection = calendar
@@ -387,9 +463,15 @@ def test_time_is_logged_against_a_task(tasklist: Collection, calendar: Collectio
             task.log_time(spent=timedelta(hours=1), day=day(0))
         assert summaries(tasklist.search()) == ["Fix the bike"]
         return
+
+    ## I worked from 9 to 10
     task.log_time(start=at(0, 9), end=at(0, 10))
+
+    ## I worked for 30 minutes more
     task.log_time(spent=timedelta(minutes=30), day=day(1))
 
+    ## That makes 1.5 hours
     assert task.time_spent() == timedelta(hours=1, minutes=30)
-    # The task itself is still the only thing the to-do list shows.
+
+    ## The task itself is still the only thing the to-do list shows.
     assert [t.uid for t in tasklist.tasks()] == [task.uid]

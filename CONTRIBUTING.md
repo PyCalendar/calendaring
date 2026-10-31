@@ -78,6 +78,9 @@ pytest --caldav-servers=all -n 12 --dist loadgroup
 `--dist loadgroup` is what keeps a server's tests together; plain `-n`
 spreads them, and two workers then fight over one server.
 
+Which servers pass, and why the others do not, is in
+[docs/caldav-servers.md](docs/caldav-servers.md).
+
 ## Sync and async code
 
 The async code in the `_async/` directories is the source; the `_sync/`

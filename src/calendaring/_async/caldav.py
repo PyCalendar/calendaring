@@ -35,7 +35,7 @@ from ..errors import (
 from ..items import _items_of, _parse
 from ..loss import LossPolicy
 from ..types import BrokenObject, Component, StoredObject, SyncToken
-from .backend import AsyncBackend, _none_held
+from .backend import AsyncBackend
 from .collection import AsyncCollection
 from .dav import AsyncDAV
 
@@ -270,14 +270,20 @@ class AsyncCalDAVBackend(AsyncBackend):
         return self.collection_class(self, calendar, name=await self._dav.display_name(calendar), components=components)
 
     async def collections(self) -> list[AsyncCollection]:
-        return [await self._wrap(c) for c in await self._dav.calendars()]
+        found: list[AsyncCollection] = []
+        for calendar in await self._dav.calendars():
+            try:
+                found.append(await self._wrap(calendar))
+            except NotFoundError:  # listed, yet not there: Bedework's tasks/, or deleted meanwhile
+                continue
+        return found
+
+    def _creatable(self, components: frozenset[Component]) -> frozenset[Component]:
+        # Infomaniak and CCS refuse any set naming a kind they cannot store; ask for the rest.
+        return stored_components(self._dav.client.features, components)
 
     async def _create_collection(self, name: str, components: frozenset[Component]) -> AsyncCollection:
-        # Infomaniak and CCS refuse any set naming a kind they cannot store; ask for the rest.
-        asked = stored_components(self._dav.client.features, components)
-        if components and not asked:
-            raise _none_held(components, self.id)
-        return await self._wrap(await self._dav.make_calendar(name, sorted(c.value for c in asked)))
+        return await self._wrap(await self._dav.make_calendar(name, sorted(c.value for c in components)))
 
     async def close(self) -> None:
         await self._dav.close()

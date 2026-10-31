@@ -720,6 +720,28 @@ async def test_a_refused_collection_that_cannot_be_deleted_is_named() -> None:
     assert info.value.feature == Feature.COMPONENT_TASK
 
 
+class OneKindPerCollection(AsyncMemoryBackend):
+    """Holds every kind, but each collection one kind only, as CCS does."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.capabilities = self.capabilities.updated(
+            {Feature.COLLECTION_MIXED: Support.UNSUPPORTED, Feature.CREATE_COLLECTION: Support.LOSSY}
+        )
+
+
+async def test_a_backend_without_mixed_collections_makes_one_for_the_first_kind_asked() -> None:
+    made = await OneKindPerCollection().create_collection("all", components=(Component.TASK, Component.EVENT))
+    assert made.components == frozenset({Component.EVENT})  # the first, sorted
+
+
+async def test_the_one_kind_is_picked_from_what_the_backend_can_hold() -> None:
+    backend = OneKindPerCollection()
+    backend._creatable = lambda components: components - {Component.EVENT}  # type: ignore[method-assign]
+    made = await backend.create_collection("all", components=(Component.TASK, Component.EVENT))
+    assert made.components == frozenset({Component.TASK})
+
+
 async def test_a_failed_clean_up_does_not_hide_the_refusal() -> None:
     backend = MakesEventsOnly()
 

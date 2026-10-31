@@ -45,10 +45,12 @@ FROM_SERVER = {
     Feature.CREATE_COLLECTION: "create-calendar",
     Feature.DELETE_COLLECTION: "delete-calendar",
     Feature.COLLECTION_SET_NAME: "create-calendar.set-displayname",
+    Feature.COLLECTION_MIXED: "create-calendar.with-supported-component-types.multiple",
     Feature.RECURRENCE: "save-load.event.recurrences",
     Feature.TASK_RELATIONS_PARENT: "save-load.icalendar.related-to",
     Feature.TASK_RELATIONS_DEPENDS_ON: "save-load.icalendar.related-to",
     Feature.TIMEZONES: "save-load.event.timezone",
+    Feature.TASK_UNCOMPLETE: "save-load.todo.uncomplete",
 }
 
 COMPONENT_FROM_SERVER = {
@@ -113,22 +115,18 @@ def _table(features: Any) -> dict[Feature, Any]:
         table.update(dict.fromkeys(STORED, X))
     for feature, name in FROM_SERVER.items():
         table[feature] = _level(features, name)
-    if (
-        table[Feature.CREATE_COLLECTION] is F
-        and _level(features, "create-calendar.with-supported-component-types") is U
-    ):
-        table[Feature.CREATE_COLLECTION] = {
-            "level": L,
-            "note": "the requested components are not kept: the server decides",
-        }
-    elif table[Feature.CREATE_COLLECTION] is F and (
-        refused := sorted(c.value for c in Component if _level(features, COMPONENT_FROM_SERVER[c][1]) is U)
-    ):
-        # Infomaniak and CCS: a calendar asked for these is made without them
-        table[Feature.CREATE_COLLECTION] = {
-            "level": L,
-            "note": f"made without {', '.join(refused)}, which the server does not store",
-        }
+    if table[Feature.CREATE_COLLECTION] is F:
+        notes = []
+        if _level(features, "create-calendar.with-supported-component-types") is U:
+            notes.append("the requested components are not kept: the server decides")
+        else:
+            # Infomaniak and CCS: a calendar asked for these is made without them
+            if refused := sorted(c.value for c in Component if _level(features, COMPONENT_FROM_SERVER[c][1]) is U):
+                notes.append(f"made without {', '.join(refused)}, which the server does not store")
+            if table[Feature.COLLECTION_MIXED] is U:  # CCS
+                notes.append("made for one component only, the first in sorted order")
+        if notes:
+            table[Feature.CREATE_COLLECTION] = {"level": L, "note": "; ".join(notes)}
     return table
 
 
@@ -198,5 +196,7 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
     for kind, (feature, name) in COMPONENT_FROM_SERVER.items():
         if kind in components:
             table[feature] = _level(features, name)
+    if _level(features, "save-load.icalendar.related-to") is U:
+        table[Feature.TIME_LOG] = {"level": U, "note": "the server strips RELATED-TO, which ties an entry to its item"}
     held_only(table, components)
     return Capabilities({f: Capability.coerce(v) for f, v in table.items()})

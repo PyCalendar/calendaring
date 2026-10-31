@@ -22,7 +22,7 @@ from icalendar_searcher import Searcher
 
 from .._concurrency import to_thread
 from .._files_store import Entry, IcsFile, Vdir, collections, layout, make_collection
-from ..capabilities import EDIT_ICALENDAR_PENDING, Capabilities, Feature, Support, held_only
+from ..capabilities import BACKEND_FEATURES, EDIT_ICALENDAR_PENDING, Capabilities, Feature, Support, held_only
 from ..errors import ConfigurationError, InvalidDataError
 from ..items import _parse
 from ..loss import LossPolicy
@@ -60,7 +60,7 @@ def collection_capabilities(single_file: bool, components: frozenset[Component])
             }
         )
     held_only(table, components)
-    for feature in (Feature.CREATE_COLLECTION, Feature.DELETE_COLLECTION):
+    for feature in BACKEND_FEATURES:
         del table[feature]
     return Capabilities(table)
 
@@ -165,7 +165,9 @@ class FilesBackend(Backend):
         level = F if self.layout == "root" else U
         super().__init__(
             id=id or str(self.path),
-            capabilities=Capabilities({Feature.CREATE_COLLECTION: level, Feature.DELETE_COLLECTION: level}),
+            capabilities=Capabilities(
+                {Feature.CREATE_COLLECTION: level, Feature.DELETE_COLLECTION: level, Feature.COLLECTION_MIXED: F}
+            ),
             native=self.path,
             loss=loss,
             verify=verify,

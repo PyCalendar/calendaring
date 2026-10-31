@@ -865,6 +865,7 @@ class Collection(ABC):
             self._require_writable(task)
             if not isinstance(task, Task):
                 raise TypeError("uncomplete(): not a task")
+            self._require(Feature.TASK_UNCOMPLETE)
             data = task.as_data()
             data.component.pop("STATUS", None)
             data.component.add("STATUS", "NEEDS-ACTION")

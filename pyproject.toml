@@ -33,7 +33,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # 3.6: save(no_overwrite=True) sends If-None-Match: *, and save(raw_data=...) sends given bytes.
-caldav = ["caldav>=3.6"]
+caldav = ["caldav>=3.7"]
 # Embedded CalDAV servers the caldav backend's conformance tests run against.
 # 3.7: caldav.testing, the registry of caldav's own test servers.
 test-servers = ["caldav>=3.7", "xandikos>=0.2", "radicale>=3.2"]
