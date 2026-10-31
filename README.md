@@ -8,33 +8,28 @@ The library is called `calendaring`: the same name on GitHub, on PyPI and as the
 
 ## Status
 
-**Pre-alpha, not released yet.**  Nothing is on PyPI so far.  What exists today is the framework: the unified API as abstract base classes (`Workspace`, `Backend`, `Collection` and the item classes) in both sync and async mode, a backend conformance suite (`calendaring.testing`), and an in-memory reference backend (`calendaring.memory`).  No real backend is implemented yet.
-
-| Release | Contents |
-|---|---|
-| 0.1.0 | CalDAV backend behind the unified API, configuration file, sync + async |
-| 0.2.0 | Local files and iCalendar feeds |
-| 0.3.0 | JMAP |
-| 0.4.0 | First task-tracker backend, time tracking, capability matrix |
-| 1.0.0 | Conformance across all backends, full documentation, API declared stable |
+**Pre-alpha.**  0.1.0 is the first release.  It has the unified API in both sync and async mode, a CalDAV backend (over the `caldav` library), a files backend (vdir directories and single `.ics` files), an in-memory reference backend, a configuration file shared with caldav, time tracking on top of ordinary calendar events, and a conformance suite every backend is tested against (`calendaring.testing`).  The API may still change before 1.0.  Which of caldav's test servers the CalDAV backend has been run against, and with what result, is in [docs/caldav-servers.md](docs/caldav-servers.md).
 
 The plan and its status are in [docs/design/ROADMAP.md](docs/design/ROADMAP.md).
 
 ## Installation and usage
 
-Python 3.11 or newer.  Until the first release, install from git:
+Python 3.11 or newer.
 
 ```
-pip install git+https://github.com/pycalendar/calendaring.git
+pip install calendaring            # files and in-memory backends
+pip install 'calendaring[caldav]'  # and the CalDAV backend
 ```
 
-With only the in-memory backend available, this is what it looks like today:
+`Backend.open()` takes an existing directory, a `file:` URL or an `https://` CalDAV URL (with `username=` and `password=`); `Workspace.from_config()` opens every section of the configuration file instead.
 
 ```python
-from calendaring import Component, Workspace
-from calendaring.memory import MemoryBackend
+import tempfile
 
-with Workspace([MemoryBackend()]) as workspace:
+from calendaring import Backend, Component, Workspace
+
+# A directory of its own: pointed at ~/.calendars, this would add to your real calendars.
+with Workspace([Backend.open(tempfile.mkdtemp())]) as workspace:
     tasks = workspace.backends[0].create_collection("Tasks", components={Component.TASK})
     task = tasks.add_task(summary="Update the README", priority=1)
     task.complete()
@@ -52,7 +47,7 @@ There are no good standards for tasks.  Apart from iCalendar, which supports tas
 
 ## Mission statement
 
-This is intended to be a general Python API for accessing task and calendaring information, regardless of where it's stored and how to access the backend.  Version 0.1.0 won't be much more than a wrapper for the CalDAV library - but it will provide a clean, general and well-documented interface, and a clean, general and well-documented [configuration file](docs/design/CONFIGURATION_PROPOSAL.md).  Local files, iCalendar feeds, JMAP and a first issue tracker follow in the next releases (see [Status](#status)).
+This is intended to be a general Python API for accessing task and calendaring information, regardless of where it's stored and how to access the backend.  Version 0.1.0 is not much more than a wrapper for the CalDAV library and local files - but it provides a clean, general and well-documented interface, and a clean, general and well-documented [configuration file](docs/design/CONFIGURATION_PROPOSAL.md).  iCalendar feeds, JMAP and a first issue tracker come later (see the [roadmap](docs/design/ROADMAP.md)).
 
 I've considered supporting other standards in the CalDAV library, but it's outside the scope for that library - hence the need for another package.
 

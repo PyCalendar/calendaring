@@ -805,22 +805,6 @@ they cannot be moved into Phases 0-3.
 
 ---
 
-## Release plan
-
-| Release | Contents | After |
-|---|---|---|
-| 0.1.0 | CalDAV backend behind the unified API, config file, sync + async | 1.5, 2.1 |
-| 0.2.0 | Local files and iCalendar feeds | 2.2, 2.3 |
-| 0.3.0 | JMAP | 2.4 |
-| 0.4.0 | First task backend, time tracking, capability matrix | 1.6, 2.5, 4.3 |
-| 1.0.0 | Conformance across all backends, full documentation, API declared stable | Phases 3 and 4 |
-
-The README describes 0.1.0 as "not much more than a wrapper for the CalDAV
-library". That remains accurate — but the framework beneath it (1.1–1.3) is what
-the remaining releases depend on, and is where the funded effort concentrates.
-
----
-
 ## Effort summary
 
 | Phase | Item | Hours |
@@ -896,8 +880,7 @@ control its schedule. If it is not usable by the time Phase 2 reaches it, 2.4 st
 valves (with 2.5). The conformance suite (1.2) means the backend can be written
 against the sibling package's API as soon as that API is settled, rather than
 waiting for the package to be complete. If the slip is severe, the 14 hours move to
-2.5 or to Phase 3 and JMAP lands in a later release — the release plan already
-isolates it in 0.3.0.
+2.5 or to Phase 3 and JMAP lands in a later release.
 
 ### Maintainer bandwidth
 
