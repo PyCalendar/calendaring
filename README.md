@@ -47,23 +47,23 @@ There are no good standards for tasks.  Apart from iCalendar, which supports tas
 
 ## Mission statement
 
-This is intended to be a general Python API for accessing task and calendaring information, regardless of where it's stored and how to access the backend.  Version 0.1.0 is not much more than a wrapper for the CalDAV library and local files - but it provides a clean, general and well-documented interface, and a clean, general and well-documented [configuration file](docs/design/CONFIGURATION_PROPOSAL.md).  iCalendar feeds, JMAP and a first issue tracker come later (see the [roadmap](docs/design/ROADMAP.md)).
+This is intended to be a general Python API for accessing task and calendaring information, regardless of where it's stored and how to access the backend.  Version 0.1.0 is not much more than a wrapper for the `caldav` library and local files - but it provides a clean, general and well-documented interface, and a clean, general and well-documented [configuration file](docs/design/CONFIGURATION_PROPOSAL.md).  iCalendar feeds, JMAP and a first issue tracker come later (see the [roadmap](docs/design/ROADMAP.md)).
 
-I've considered supporting other standards in the CalDAV library, but it's outside the scope for that library - hence the need for another package.
+I've considered supporting other standards than CalDAV in the `caldav` library, but it's outside the scope for that library - hence the need for another package.
 
 ### Personal motivation
 
 * I feel that the combination of a lack of a good task list and "too many TODO-lists" has been a consistent pain for most of my life.
 * I would like to have all relevant tasks and calendar events open in front of me when planning my days, weeks and months regardless of where the tasks are stored.
 * I'd like to throw standardized attributes on my tasks and issues (like time spent, time estimate, priority, due-time) regardless of where they exist (this may involve synchronizing information from external systems with my own calendar/task store).  I do hope that this library can help me achieve this.
-* I have the [`plann`](https://github.com/tobixen/plann) utility, a CLI and library for more advanced calendaring and task management.  It offers things that are out of the scope of both CalDAV and this library, including "panic planning" where it tries to fit the tasks with the highest priority into the available time before the deadlines.  It uses the CalDAV library, but I'd like to use it towards other systems as well.  `plann` will be the first real user of this library.
+* I have the [`plann`](https://github.com/tobixen/plann) utility, a CLI and library for more advanced calendaring and task management.  It offers things that are out of the scope of both CalDAV and this library, including "panic planning" where it tries to fit the tasks with the highest priority into the available time before the deadlines.  It uses the `caldav` library, but I'd like to use it towards other systems as well.  `plann` will be the first real user of this library.
 
 ## Backends
 
 Funded (see [Funding](#funding) and the [roadmap](docs/design/ROADMAP.md)):
 
 * **CalDAV**, through the `caldav` library.  It's (IMO) not a very good standard, but it is sort of the only standard for distributing and updating calendaring information.
-* **iCalendar feeds** (read-only, `https://` and `webcal://`).  It has become quite normal to offer users access to calendar data through iCalendar links.  It's much simpler than CalDAV, but offers fewer features.  Several years ago I got requests for feed support in the CalDAV library, and rejected it for being outside its scope.  With [icalendar-searcher](https://github.com/pycalendar/icalendar-searcher), split out of the CalDAV library, search behaves the same towards a CalDAV server and an iCalendar feed.
+* **iCalendar feeds** (read-only, `https://` and `webcal://`).  It has become quite normal to offer users access to calendar data through iCalendar links.  It's much simpler than CalDAV, but offers fewer features.  Several years ago I got requests for feed support in the `caldav` library, and rejected it for being outside its scope.  With [icalendar-searcher](https://github.com/pycalendar/icalendar-searcher), split out of the `caldav` library, search behaves the same towards a CalDAV server and an iCalendar feed.
 * **Local iCalendar files** (`.ics` files and vdir directories), read and write.  The API works the same regardless of whether it is used towards a remote calendar server or towards local files.
 * **JMAP**, through [calendaring-jmap](https://github.com/pycalendar/calendaring-jmap).
 * **One issue tracker**: Gitea, chosen by [the task model survey](docs/design/TASK_MODEL_SURVEY.md#part-5-which-tracker-to-implement-first), which also covers Vikunja, GitLab, Kanboard, Taskwarrior, Emacs org-mode, OpenProject, Request Tracker, EteSync and plain-text task files.
