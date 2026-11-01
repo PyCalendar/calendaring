@@ -180,6 +180,7 @@ def _open(item: Item) -> bool:
     return isinstance(item, Task) and str(item.component.get("STATUS", "NEEDS-ACTION")) not in (
         "COMPLETED",
         "CANCELLED",
+        "FAILED",
     )
 
 

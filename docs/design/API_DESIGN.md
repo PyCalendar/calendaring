@@ -831,7 +831,7 @@ Everything else is a property of the `VTODO`, read and written through
 `component`. `TaskStatus` is the vocabulary backends map `STATUS` to and
 from. It is not a field: `icalendar.enums.STATUS` has no `PENDING` or
 `FAILED`, which RFC 10051 adds, so those two are a candidate for
-`icalendar` too. Until then `component.status` raises `ValueError` on them,
+`icalendar` too ([issue 2055](https://github.com/collective/icalendar/issues/2055)). Until then `component.status` raises `ValueError` on them,
 and `component.get("STATUS")` is the way to read them. `set_duration()` is a method rather than a property
 because it changes two of them.
 
@@ -858,6 +858,15 @@ Decisions in it, each from the survey:
 - **`priority` is iCalendar's 0–9.** The survey found five incompatible
   scales; the mapping to each is the backend's, documented as lossy.
   plann's semantics for 1–9 sit on top of this and are plann's.
+- **Whether `FAILED` is final is left open**, because RFC 10051 is very
+  unclear on it. §9.1 defines `PARTSTAT=FAILED` as "To-do cannot be
+  completed", but that is the participant's status. §11.2 says a task with
+  `STATUS:FAILED` "may need some follow-up" from the Organizer "to reschedule
+  or cancel", and Appendix A.3 ends its lifecycle on `FAILED`. So the library
+  is not consistent yet: `summarize()` counts no estimate for such a task and
+  a two-state tracker stores it as `COMPLETED`, while `include_completed=False`
+  still returns it, as `icalendar-searcher` excludes only `COMPLETED` and
+  `CANCELLED`. Full support of RFC 10051 is not on the roadmap.
 - **Assignees are the task's `ATTENDEE`s** (`component.attendees`), as on
   any other component. RFC 10051 (section 6) says it in so
   many words: "Tasks are assigned to actors using one or more 'ATTENDEE'
@@ -991,7 +1000,8 @@ END:VEVENT
 **For `sum_hours`**, `calendaring.timetracking.summarize(pairs, group_by=…,
 window=(start, end))` groups `(item, entries)` pairs into
 `TimeSummary(estimate, spent)` per key.  `estimate` is the
-`ESTIMATED-DURATION` of the open tasks, and `spent` the logged time.  The
+`ESTIMATED-DURATION` of the open tasks (not `COMPLETED`, `CANCELLED` or
+`FAILED`), and `spent` the logged time.  The
 two are kept apart, since committed and spent time answer different
 questions.  The window clips entries, prorating one that straddles an
 edge; an entry with no start counts by when it was logged.
