@@ -111,6 +111,18 @@ def test_no_uncomplete_where_the_server_keeps_a_task_completed() -> None:
     assert collection_capabilities(server, ALL).level(Feature.TASK_UNCOMPLETE) is Support.UNSUPPORTED
 
 
+def test_a_conditional_delete_is_emulated_where_the_server_ignores_if_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SOGo, Zimbra, Bedework and Posteo delete on a stale If-Match; a caldav that reads the ETag first emulates it."""
+    from caldav.calendarobjectresource import CalendarObjectResource
+
+    server = features({"save-load": {"support": "full"}, "delete.if-match": {"support": "broken"}})
+    monkeypatch.setattr(CalendarObjectResource, "_ignores_delete_if_match", lambda *a: True, raising=False)
+    assert collection_capabilities(server, ALL).level(Feature.WRITE_CONDITIONAL) is Support.EMULATED
+    monkeypatch.delattr(CalendarObjectResource, "_ignores_delete_if_match")
+    older = collection_capabilities(server, ALL)  # a caldav that deletes whatever the ETag
+    assert older.level(Feature.WRITE_CONDITIONAL) is Support.UNSUPPORTED
+
+
 def test_one_kind_per_calendar_where_the_server_refuses_several() -> None:
     """CCS refuses a MKCALENDAR naming VEVENT and VTODO; Bedework 3, Zimbra and Ox misreport one."""
     multiple = "create-calendar.with-supported-component-types.multiple"

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._caldav_io import CalendarObjectResource
 from .capabilities import (
     BACKEND_FEATURES,
     EDIT_ICALENDAR_PENDING,
@@ -196,6 +197,17 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
     for kind, (feature, name) in COMPONENT_FROM_SERVER.items():
         if kind in components:
             table[feature] = _level(features, name)
+    if _hinted(features) and str(features.is_supported("delete.if-match", str)) == "broken":
+        if hasattr(CalendarObjectResource, "_ignores_delete_if_match"):  # caldav 3.8
+            table[Feature.WRITE_CONDITIONAL] = {
+                "level": E,
+                "note": "the server deletes on a stale If-Match; caldav reads the ETag first, a window before the delete",
+            }
+        else:
+            table[Feature.WRITE_CONDITIONAL] = {
+                "level": U,
+                "note": "the server deletes on a stale If-Match: delete() is not conditional before caldav 3.8; save() is",
+            }
     if _level(features, "save-load.icalendar.related-to") is U:
         table[Feature.TIME_LOG] = {"level": U, "note": "the server strips RELATED-TO, which ties an entry to its item"}
     held_only(table, components)
