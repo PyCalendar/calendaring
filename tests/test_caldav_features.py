@@ -25,6 +25,11 @@ def features(table: dict[str, Any] | None = None) -> Any:
     return FeatureSet(table)  # type: ignore[no-untyped-call]  # caldav leaves it unannotated
 
 
+def needs_hint(name: str) -> pytest.MarkDecorator:
+    """For a hint newer than the caldav installed (due in caldav 3.8)."""
+    return pytest.mark.skipif(name not in FeatureSet.FEATURES, reason=f"caldav has no {name} hint yet")
+
+
 def hinted(**levels: str) -> Any:
     """A server caldav has hints for: ``sync_token="unsupported"`` sets ``sync-token``."""
     return features({name.replace("_", "-"): {"support": level} for name, level in levels.items()})
@@ -121,6 +126,121 @@ def test_a_conditional_delete_is_emulated_where_the_server_ignores_if_match(monk
     monkeypatch.delattr(CalendarObjectResource, "_ignores_delete_if_match")
     older = collection_capabilities(server, ALL)  # a caldav that deletes whatever the ETag
     assert older.level(Feature.WRITE_CONDITIONAL) is Support.UNSUPPORTED
+
+
+def test_time_entries_lose_their_users_where_the_server_refuses_participants() -> None:
+    """CCS, Bedework 3, robur, GMX, Ox and Zimbra refuse an event holding a PARTICIPANT."""
+    server = hinted(save_load="full", **{"save-load.icalendar.participant": "ungraceful"})
+    table = collection_capabilities(server, ALL)
+    assert table.level(Feature.TIME_LOG) is Support.LOSSY
+    assert table.details(Feature.TIME_LOG)["lost"] == ["users"]
+    tasks_only = collection_capabilities(server, frozenset({Component.TASK}))
+    assert tasks_only.level(Feature.TIME_LOG) is Support.UNSUPPORTED  # nowhere to log time stays the reason
+
+
+@pytest.mark.parametrize(
+    ("hint", "feature"),
+    [
+        ("save-load.todo.attendee", Feature.ATTENDEES),  # Ox: 500
+        ("save-load.todo.recurrences", Feature.RECURRENCE),  # Ox: 400
+        ("save-load.icalendar.x-property", Feature.PROPERTIES_PASSTHROUGH),  # Ox drops it from a task
+        ("save-load.icalendar.x-property", Feature.TASK_PLANNED),  # X-PYCAL-PLANNED-*
+        ("save-load.icalendar.unknown-property", Feature.TASK_ESTIMATE),  # Ox, Zimbra: ESTIMATED-DURATION
+    ],
+)
+def test_what_a_task_list_cannot_store(hint: str, feature: Feature) -> None:
+    """These hints are probed on a task: a calendar of events keeps the feature, and so does one holding
+    events too, whose events would otherwise lose it (levels are per collection, not per component)."""
+    server = features(
+        {"save-load": {"support": "full"}, hint: {"support": "ungraceful", "behaviour": "dropped, in a task"}}
+    )
+    assert collection_capabilities(server, frozenset({Component.TASK})).level(feature) is Support.UNSUPPORTED
+    if feature in (Feature.TASK_PLANNED, Feature.TASK_ESTIMATE):  # nothing of an event's to lose
+        assert collection_capabilities(server, ALL).level(feature) is Support.UNSUPPORTED
+    else:
+        assert collection_capabilities(server, ALL).level(feature) is Support.FULL
+        assert collection_capabilities(server, frozenset({Component.EVENT})).level(feature) is Support.FULL
+
+
+def test_x_properties_dropped_from_events_too_lower_every_collection() -> None:
+    """The x-property hint names where it was dropped; not only from a task means from events too."""
+    server = features(
+        {
+            "save-load": {"support": "full"},
+            "save-load.icalendar.x-property": {
+                "support": "unsupported",
+                "behaviour": "X-CALDAV-SERVER-TESTER is dropped, in an event",
+            },
+        }
+    )
+    events = collection_capabilities(server, frozenset({Component.EVENT}))
+    assert events.level(Feature.PROPERTIES_PASSTHROUGH) is Support.UNSUPPORTED
+
+
+@needs_hint("save-load.todo.status")
+def test_statuses_a_task_list_does_not_keep() -> None:
+    """Zimbra stores PENDING and FAILED as NEEDS-ACTION and refuses CANCELLED."""
+    from caldav import compatibility_hints
+
+    server = features({"save-load": {"support": "full"}, **compatibility_hints.zimbra_8_8})
+    table = collection_capabilities(server, frozenset({Component.TASK}))
+    assert table.level(Feature.TASK_STATUS) is Support.LOSSY
+    assert table.details(Feature.TASK_STATUS)["values"] == ["NEEDS-ACTION", "IN-PROCESS", "COMPLETED"]
+    assert table.details(Feature.TASK_STATUS)["map"] == {"PENDING": "NEEDS-ACTION", "FAILED": "NEEDS-ACTION"}
+    assert collection_capabilities(server, frozenset({Component.EVENT})).level(Feature.TASK_STATUS) is not Support.LOSSY
+
+
+@needs_hint("save-load.todo.priority")
+def test_priority_zero_is_left_out_not_sent_as_the_servers_stand_in() -> None:
+    """Ox keeps 1, 5 and 9 and stores 0 as 5; no PRIORITY means the same as 0."""
+    from caldav import compatibility_hints
+
+    server = features({"save-load": {"support": "full"}, **compatibility_hints.ox})
+    details = collection_capabilities(server, frozenset({Component.TASK})).details(Feature.TASK_PRIORITY)
+    assert details["values"] == [1, 5, 9]
+    assert 0 not in details["map"]
+    assert details["map"][7] == 9
+
+
+@needs_hint("save-load.todo.priority")
+def test_priorities_from_a_config_file_are_numbers() -> None:
+    """A hint read from YAML or JSON may carry the priorities as strings."""
+    hint = {"support": "unsupported", "values": ["1", "5", "9"], "map": {"0": "5", "2": "1"}}
+    server = features({"save-load": {"support": "full"}, "save-load.todo.priority": hint})
+    details = collection_capabilities(server, frozenset({Component.TASK})).details(Feature.TASK_PRIORITY)
+    assert details["values"] == [1, 5, 9]
+    assert details["map"] == {2: 1}
+
+
+@needs_hint("save-load.icalendar.x-parameter")
+def test_no_wire_writes_where_the_server_drops_x_parameters() -> None:
+    """Ox and Zimbra drop SUMMARY;X-...: the bytes are not stored as sent."""
+    server = hinted(save_load="full", **{"save-load.icalendar.x-parameter": "unsupported"})
+    assert collection_capabilities(server, ALL).level(Feature.WRITE_WIRE) is Support.UNSUPPORTED
+
+
+def test_no_native_id_in_a_task_list_where_the_server_renames_tasks_to_their_uid() -> None:
+    """Ox keeps an event's name and names a task <uid>.ics."""
+    server = features(
+        {
+            "save-load": {"support": "full"},
+            "save-load.stable-url": {"support": "unsupported", "uid_ics_components": ["VTODO"]},
+        }
+    )
+    tasks = collection_capabilities(server, frozenset({Component.TASK}))
+    assert tasks.level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.UNSUPPORTED
+    events = collection_capabilities(server, frozenset({Component.EVENT}))
+    assert events.level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.FULL
+
+
+def test_no_native_id_where_the_server_renames_every_object_to_its_uid() -> None:
+    """Zimbra redirects a PUT under another name to <uid>.ics."""
+    renaming = features(
+        {"save-load": {"support": "full"}, "save-load.stable-url": {"support": "unsupported", "forces_uid_ics": True}}
+    )
+    assert collection_capabilities(renaming, ALL).level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.UNSUPPORTED
+    unstable = hinted(save_load="full", **{"save-load.stable-url": "unsupported"})  # Ox: other reasons
+    assert collection_capabilities(unstable, ALL).level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.FULL
 
 
 def test_one_kind_per_calendar_where_the_server_refuses_several() -> None:

@@ -611,6 +611,22 @@ async def test_a_day_lines_up_per_person_and_may_run_past_midnight() -> None:
     assert late.end.date() > day, "a long day keeps its sum, past midnight"
 
 
+async def test_users_declared_lost_are_not_sent() -> None:
+    """Where the server refuses an event with a PARTICIPANT (CCS, Ox, Zimbra...), an entry is stored without it."""
+    lossy = {"level": Support.LOSSY, "lost": ["users"]}
+    profile = Profile("no-participants", {**FULL.capabilities, Feature.TIME_LOG: lossy}, FULL.components)
+    collection = await AsyncMemoryBackend(profile).collection("default")
+    task = await collection.add_task(summary="x")
+    alice = ("mailto:alice@example.com",)
+    entry = await task.log_time(start=at(3, 9), end=at(3, 10), users=alice)
+    assert entry.users == ()
+    assert entry.id is not None
+    assert "PARTICIPANT" not in (await collection.get(entry.id)).to_ical().decode()
+    amended = await task.amend_time(entry, users=alice, comment="later")
+    assert amended.users == ()
+    assert "PARTICIPANT" not in (await collection.get(entry.id)).to_ical().decode()
+
+
 async def test_time_entries_are_not_subtasks() -> None:
     collection = await AsyncMemoryBackend().collection("default")
     task = await collection.add_task(summary="parent")

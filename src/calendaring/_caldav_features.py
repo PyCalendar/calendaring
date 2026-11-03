@@ -54,6 +54,26 @@ FROM_SERVER = {
     Feature.TASK_UNCOMPLETE: "save-load.todo.uncomplete",
 }
 
+# Feature -> the caldav feature probed on a task.  A level is the collection's, not a component's, so
+# a calendar holding events too keeps these: lowering them would cost its events what they can keep.
+TASK_FROM_SERVER = {
+    Feature.ATTENDEES: "save-load.todo.attendee",
+    Feature.RECURRENCE: "save-load.todo.recurrences",
+    Feature.PROPERTIES_PASSTHROUGH: "save-load.icalendar.x-property",  # Ox drops X- properties from tasks only
+}
+
+# The same for what only a task has: lowered wherever tasks are held.
+TASK_ONLY_FROM_SERVER = {
+    Feature.TASK_PLANNED: "save-load.icalendar.x-property",  # X-PYCAL-PLANNED-*
+    Feature.TASK_ESTIMATE: "save-load.icalendar.unknown-property",  # probed with ESTIMATED-DURATION
+}
+
+# Feature -> the caldav feature listing the values a task keeps (``values``), and stores as another (``map``).
+VALUES_FROM_SERVER = {
+    Feature.TASK_STATUS: "save-load.todo.status",
+    Feature.TASK_PRIORITY: "save-load.todo.priority",
+}
+
 COMPONENT_FROM_SERVER = {
     Component.EVENT: (Feature.COMPONENT_EVENT, "save-load.event"),
     Component.TASK: (Feature.COMPONENT_TASK, "save-load.todo"),
@@ -80,7 +100,7 @@ def _hinted(features: Any) -> bool:
 
 
 def _level(features: Any, name: str) -> Support:
-    if not _hinted(features):
+    if not _hinted(features) or name not in getattr(features, "FEATURES", {name}):  # a hint newer than this caldav
         return X
     return LEVELS.get(str(features.is_supported(name, str)), X)
 
@@ -184,6 +204,21 @@ def stored_components(features: Any, listed: frozenset[Component]) -> frozenset[
     return frozenset(c for c in listed if _level(features, COMPONENT_FROM_SERVER[c][1]) is not U)
 
 
+def _values(feature: Feature, hint: dict[str, Any]) -> dict[str, Any]:
+    """LOSSY with the values the server keeps.  A refused one is left out, as is a dropped one:
+    the loss planner drops it before sending.  PRIORITY:0 is not sent as the server's
+    stand-in either (Ox: 5), since no PRIORITY means the same as 0."""
+    number = int if feature is Feature.TASK_PRIORITY else str  # a hint from YAML or JSON may carry "5"
+    mapping = {number(k): number(v) for k, v in hint.get("map", {}).items() if number(k) != 0}
+    values = [number(v) for v in hint.get("values", [])]
+    return {"level": L, "values": values, "map": mapping, "note": hint.get("behaviour") or None}
+
+
+def multiget_serves_deleted(features: Any) -> bool:
+    """Zimbra answers a GET of a deleted object with 404, and a calendar-multiget of it with the old data."""
+    return _level(features, "multiget.deleted") is U
+
+
 def backend_capabilities(features: Any) -> Capabilities:
     return Capabilities({f: v for f, v in _table(features).items() if f in BACKEND_FEATURES})
 
@@ -210,5 +245,34 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
             }
     if _level(features, "save-load.icalendar.related-to") is U:
         table[Feature.TIME_LOG] = {"level": U, "note": "the server strips RELATED-TO, which ties an entry to its item"}
+    elif _level(features, "save-load.icalendar.participant") is U:
+        table[Feature.TIME_LOG] = {
+            "level": L,
+            "lost": ["users"],
+            "note": "the server refuses an event with a PARTICIPANT, which names who did the work",
+        }
+    if Component.TASK in components:
+        lowered = {**TASK_ONLY_FROM_SERVER, **(TASK_FROM_SERVER if Component.EVENT not in components else {})}
+        for feature, name in lowered.items():
+            if _level(features, name) is U:
+                table[feature] = U
+        for feature, name in VALUES_FROM_SERVER.items():
+            if _level(features, name) is U:  # Ox keeps priorities 1, 5 and 9; Zimbra refuses CANCELLED
+                table[feature] = _values(feature, features.is_supported(name, dict))
+    stable_url = features.is_supported("save-load.stable-url", dict) if _hinted(features) else {}
+    if stable_url.get("forces_uid_ics"):
+        table[Feature.IDENTITY_CLIENT_NATIVE_ID] = {"level": U, "note": "the server renames every object <uid>.ics"}
+    elif renamed := sorted(c.value for c in components if c.value in stable_url.get("uid_ics_components", ())):
+        table[Feature.IDENTITY_CLIENT_NATIVE_ID] = {
+            "level": U,
+            "note": f"the server renames a {', '.join(renamed)} <uid>.ics",
+        }
+    x_property = features.is_supported("save-load.icalendar.x-property", dict) if _hinted(features) else {}
+    if _level(features, "save-load.icalendar.x-property") is U and not x_property.get("behaviour", "").endswith(
+        "in a task"
+    ):  # dropped from events too
+        table[Feature.PROPERTIES_PASSTHROUGH] = U
+    if _level(features, "save-load.icalendar.x-parameter") is U:
+        table[Feature.WRITE_WIRE] = {"level": U, "note": "the server drops X- parameters: bytes are not stored as sent"}
     held_only(table, components)
     return Capabilities({f: Capability.coerce(v) for f, v in table.items()})

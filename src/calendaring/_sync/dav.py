@@ -82,6 +82,14 @@ class DAV:
             found: Any = calendar.multiget([URL.objectify(u) for u in urls])
             return list(_returned(cast(Any, found)))
 
+    def get(self, calendar: Calendar, url: str) -> CalendarObjectResource:
+        """The object at ``url``, read with a GET: ``NotFoundError`` if it is gone."""
+        obj = _resource(self.client, calendar, url)
+        with translated():
+            # No multiget fallback: the reason to GET is a multiget serving deleted objects.
+            _returned(obj.load(multiget_fallback=False))
+        return obj
+
     def etags(self, url: str) -> dict[str, str]:
         with translated():
             # Positional: the sync client's second parameter is props=, which also takes an XML body.

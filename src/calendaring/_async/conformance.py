@@ -825,7 +825,9 @@ class AsyncConformance:
         def policy(losses: Sequence[Loss], item: Item) -> None:
             seen.append(losses)
 
-        await collection.add(item, loss=policy)
+        again = Task.new(summary=f"{name} outside, again")  # the first is stored now, under its UID
+        again.component[name] = outside[0]
+        await collection.add(again, loss=policy)
         assert [[loss.property for loss in losses] for losses in seen] == [[name]]
         assert seen[0][0].sent == outside[0]
 
