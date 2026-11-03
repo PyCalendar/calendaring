@@ -68,10 +68,14 @@ TASK_ONLY_FROM_SERVER = {
     Feature.TASK_ESTIMATE: "save-load.icalendar.unknown-property",  # probed with ESTIMATED-DURATION
 }
 
-# Feature -> the caldav feature listing the values a task keeps (``values``), and stores as another (``map``).
+# Feature -> the caldav features listing the values a task keeps (``values``) and stores as another
+# (``map``), each with the values it probes: what is kept where the server keeps them all.
 VALUES_FROM_SERVER = {
-    Feature.TASK_STATUS: "save-load.todo.status",
-    Feature.TASK_PRIORITY: "save-load.todo.priority",
+    Feature.TASK_STATUS: (
+        ("save-load.todo.status", ("NEEDS-ACTION", "IN-PROCESS", "COMPLETED", "CANCELLED")),
+        ("save-load.todo.status.rfc10051", ("PENDING", "FAILED")),  # Ox drops them, Zimbra maps them
+    ),
+    Feature.TASK_PRIORITY: (("save-load.todo.priority", tuple(range(10))),),
 }
 
 COMPONENT_FROM_SERVER = {
@@ -204,14 +208,33 @@ def stored_components(features: Any, listed: frozenset[Component]) -> frozenset[
     return frozenset(c for c in listed if _level(features, COMPONENT_FROM_SERVER[c][1]) is not U)
 
 
-def _values(feature: Feature, hint: dict[str, Any]) -> dict[str, Any]:
-    """LOSSY with the values the server keeps.  A refused one is left out, as is a dropped one:
-    the loss planner drops it before sending.  PRIORITY:0 is not sent as the server's
-    stand-in either (Ox: 5), since no PRIORITY means the same as 0."""
+def _values(features: Any, feature: Feature) -> dict[str, Any] | None:
+    """LOSSY with the values the server keeps, where one of the hints says it does not keep them all.
+    A refused value is left out, as is a dropped one: the loss planner drops it before sending.
+    PRIORITY:0 is not sent as the server's stand-in either (Ox: 5), since no PRIORITY means the same as 0."""
+    hints = VALUES_FROM_SERVER[feature]
+    if not any(_level(features, name) is U for name, _ in hints):
+        return None
     number = int if feature is Feature.TASK_PRIORITY else str  # a hint from YAML or JSON may carry "5"
-    mapping = {number(k): number(v) for k, v in hint.get("map", {}).items() if number(k) != 0}
-    values = [number(v) for v in hint.get("values", [])]
-    return {"level": L, "values": values, "map": mapping, "note": hint.get("behaviour") or None}
+    values: list[Any] = []
+    mapping: dict[Any, Any] = {}
+    notes = []
+    seen: list[dict[str, Any]] = []
+    for name, probed in hints:
+        level = _level(features, name)
+        if level is F:
+            values.extend(probed)
+        if level is not U:
+            continue  # unknown: nothing is known to be kept
+        hint = features.is_supported(name, dict)
+        if hint in seen:  # caldav answers a child with its parent's node where only the parent is set
+            continue
+        seen.append(hint)
+        values.extend(number(v) for v in hint.get("values", []))
+        mapping.update({number(k): number(v) for k, v in hint.get("map", {}).items() if number(k) != 0})
+        if hint.get("behaviour"):
+            notes.append(hint["behaviour"])
+    return {"level": L, "values": values, "map": mapping, "note": "; ".join(notes) or None}
 
 
 def multiget_serves_deleted(features: Any) -> bool:
@@ -256,9 +279,9 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
         for feature, name in lowered.items():
             if _level(features, name) is U:
                 table[feature] = U
-        for feature, name in VALUES_FROM_SERVER.items():
-            if _level(features, name) is U:  # Ox keeps priorities 1, 5 and 9; Zimbra refuses CANCELLED
-                table[feature] = _values(feature, features.is_supported(name, dict))
+        for feature in VALUES_FROM_SERVER:  # Ox keeps priorities 1, 5 and 9; Zimbra refuses CANCELLED
+            if (declared := _values(features, feature)) is not None:
+                table[feature] = declared
     stable_url = features.is_supported("save-load.stable-url", dict) if _hinted(features) else {}
     if stable_url.get("forces_uid_ics"):
         table[Feature.IDENTITY_CLIENT_NATIVE_ID] = {"level": U, "note": "the server renames every object <uid>.ics"}

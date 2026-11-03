@@ -190,6 +190,42 @@ def test_statuses_a_task_list_does_not_keep() -> None:
     assert collection_capabilities(server, frozenset({Component.EVENT})).level(Feature.TASK_STATUS) is not Support.LOSSY
 
 
+@needs_hint("save-load.todo.status.rfc10051")
+def test_rfc_10051_statuses_lost_where_the_rfc_5545_ones_are_kept() -> None:
+    """Ox keeps RFC 5545's four statuses and drops PENDING and FAILED."""
+    from caldav import compatibility_hints
+
+    server = features({"save-load": {"support": "full"}, **compatibility_hints.ox})
+    table = collection_capabilities(server, frozenset({Component.TASK}))
+    details = table.details(Feature.TASK_STATUS)
+    assert details["values"] == ["NEEDS-ACTION", "IN-PROCESS", "COMPLETED", "CANCELLED"]
+    assert details["map"] == {}
+    assert "does not advertise RFC 10051" in (table[Feature.TASK_STATUS].note or "")
+
+
+@needs_hint("save-load.todo.status.rfc10051")
+def test_a_parent_status_hint_alone_is_not_counted_twice() -> None:
+    """caldav answers the child with the parent's node where only the parent is set."""
+    hint = {"support": "ungraceful", "values": ["NEEDS-ACTION", "IN-PROCESS", "COMPLETED"], "refused": ["CANCELLED"]}
+    server = features({"save-load": {"support": "full"}, "save-load.todo.status": hint})
+    details = collection_capabilities(server, frozenset({Component.TASK})).details(Feature.TASK_STATUS)
+    assert details["values"] == ["NEEDS-ACTION", "IN-PROCESS", "COMPLETED"]
+
+
+@needs_hint("save-load.todo.status.rfc10051")
+def test_statuses_not_known_to_be_kept_are_not_declared_kept() -> None:
+    """A hint the tester could not settle says nothing kept: PENDING and FAILED are left out."""
+    server = features(
+        {
+            "save-load": {"support": "full"},
+            "save-load.todo.status": {"support": "unsupported", "values": ["NEEDS-ACTION"]},
+            "save-load.todo.status.rfc10051": {"support": "unknown"},
+        }
+    )
+    details = collection_capabilities(server, frozenset({Component.TASK})).details(Feature.TASK_STATUS)
+    assert details["values"] == ["NEEDS-ACTION"]
+
+
 @needs_hint("save-load.todo.priority")
 def test_priority_zero_is_left_out_not_sent_as_the_servers_stand_in() -> None:
     """Ox keeps 1, 5 and 9 and stores 0 as 5; no PRIORITY means the same as 0."""
