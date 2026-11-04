@@ -8,8 +8,9 @@ from zoneinfo import ZoneInfo
 
 import icalendar
 
-from calendaring import Capabilities, Event, Feature, Support
+from calendaring import Capabilities, Event, Feature, Support, Task, TaskStatus
 from calendaring._mapping import differences, plan_calendar_losses, plan_losses
+from calendaring.memory import TRACKER
 
 OSLO = ZoneInfo("Europe/Oslo")
 
@@ -133,3 +134,11 @@ def test_an_unescaped_comma_is_a_difference_and_parameter_lists_are_sets() -> No
         '"mailto:a@example.com","mailto:b@example.com"', '"mailto:b@example.com","mailto:a@example.com"'
     )
     assert differences(sent, icalendar.Calendar.from_ical(swapped)) == []
+
+
+def test_failed_on_a_two_state_tracker_is_stored_as_completed() -> None:
+    task = Task.new(summary="x", status=TaskStatus.FAILED)
+    [(loss, apply)] = plan_losses(task.component, Capabilities(TRACKER.capabilities))
+    assert (loss.property, loss.sent, loss.stored) == ("STATUS", "FAILED", "COMPLETED")
+    apply()
+    assert task.component["STATUS"] == "COMPLETED"

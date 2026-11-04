@@ -84,7 +84,12 @@ TRACKER = Profile(
         Feature.TASK_STATUS: {
             "level": L,
             "values": ["NEEDS-ACTION", "COMPLETED"],
-            "map": {"PENDING": "NEEDS-ACTION", "IN-PROCESS": "NEEDS-ACTION", "CANCELLED": "COMPLETED"},
+            "map": {
+                "PENDING": "NEEDS-ACTION",
+                "IN-PROCESS": "NEEDS-ACTION",
+                "CANCELLED": "COMPLETED",
+                "FAILED": "COMPLETED",
+            },
         },
         Feature.TASK_PRIORITY: {
             "level": L,

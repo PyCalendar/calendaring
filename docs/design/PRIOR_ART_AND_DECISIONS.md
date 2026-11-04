@@ -245,7 +245,7 @@ The status of each standard was checked on the IETF datatracker on 2026-09-24.
 | RFC 5545 iCalendar | RFC | the canonical data model (D6) | **yes** |
 | RFC 7986 new iCalendar properties | RFC | `NAME`, `COLOR`, **`REFRESH-INTERVAL`**, `SOURCE` — the feed backend (2.3) should follow `REFRESH-INTERVAL` | **yes**, read side |
 | RFC 9253 relationships | RFC | `LINK`, `CONCEPT`, `REFID`, extended `RELTYPE` — task dependencies (0.1) | **yes** |
-| draft-ietf-calext-ical-tasks-17 | RFC Editor queue, "In Final Review" (2026-09-24) | `ESTIMATED-DURATION`, `VSTATUS`, new `STATUS` values — covered in the [task survey §1.2](TASK_MODEL_SURVEY.md) | **yes**, read + write `ESTIMATED-DURATION` |
+| RFC 10051 task extensions | RFC (October 2026, checked 2026-11-01), updates RFC 5545 | `ESTIMATED-DURATION`, `VSTATUS`, new `STATUS` values — covered in the [task survey §1.2](TASK_MODEL_SURVEY.md) | **yes**, read + write `ESTIMATED-DURATION` |
 | RFC 9074 VALARM extensions | RFC | acknowledge/snooze alarms | no — pass through untouched |
 | RFC 9073 event publishing extensions | RFC | `PARTICIPANT`, `VLOCATION`, `STRUCTURED-DATA` | no — pass through untouched |
 | RFC 7953 VAVAILABILITY | RFC | availability | no |
@@ -272,8 +272,8 @@ in the "beyond the funded scope" table. FEP-8a8e is the thing to build on, not
 raw ActivityPub, because it exists precisely so that Mobilizon, Gancio and the
 WordPress event plugins agree on what an `Event` looks like.
 
-**A standards observation for 1.1:** of everything above, only iCalendar and the
-tasks draft are needed to *model* the data. Every other entry is either a
+**A standards observation for 1.1:** of everything above, only iCalendar and
+RFC 10051 are needed to *model* the data. Every other entry is either a
 transport (CalDAV, JMAP, HTTP, files) or something that must survive a round trip
 untouched. The library's job for the latter is **not to lose them**. "Pass
 through untouched" should be a conformance-suite test (1.2): read an object
@@ -541,7 +541,7 @@ The author's view is that `icalendar` is good enough, with one condition: the
 [0.1 survey](TASK_MODEL_SURVEY.md) proposes fields that RFC 5545 has no
 property for, extra timestamps among them. Those are stored as `X-`
 properties. The order of preference, for 1.1 to apply field by field: an
-RFC 5545 property; then one from RFC 9253 or the ical-tasks draft (Part 2);
+RFC 5545 property; then one from RFC 9253 or RFC 10051 (Part 2);
 then an `X-` property, under one documented prefix, so that a later standard
 property can replace it without guessing.
 
@@ -600,7 +600,7 @@ caller-owned session that §1.4 asks for.
 - Home Assistant core — https://github.com/home-assistant/core (components `caldav`, `todo`, `local_calendar`, `local_todo`, `remote_calendar`; `script/hassfest/quality_scale.py`)
 - calendaring-jmap — https://github.com/pycalendar/calendaring-jmap
 - pycal.org — https://github.com/pycalendar/pycal.org (`_data/packages.yml`)
-- draft-ietf-calext-ical-tasks — https://datatracker.ietf.org/doc/draft-ietf-calext-ical-tasks/
+- RFC 10051 — https://datatracker.ietf.org/doc/html/rfc10051
 - draft-ietf-calext-jscalendarbis — https://datatracker.ietf.org/doc/draft-ietf-calext-jscalendarbis/
 - draft-ietf-jmap-calendars — https://datatracker.ietf.org/doc/draft-ietf-jmap-calendars/
 - draft-ietf-jmap-tasks — https://datatracker.ietf.org/doc/draft-ietf-jmap-tasks/

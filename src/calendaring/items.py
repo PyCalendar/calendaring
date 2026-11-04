@@ -29,12 +29,12 @@ X_PLANNED_END = "X-PYCAL-PLANNED-END"
 class TaskStatus(StrEnum):
     """The vocabulary backends map ``STATUS`` to and from; values are the iCalendar strings."""
 
-    PENDING = "PENDING"  # tasks draft
+    PENDING = "PENDING"  # RFC 10051
     NEEDS_ACTION = "NEEDS-ACTION"
     IN_PROCESS = "IN-PROCESS"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
-    FAILED = "FAILED"  # tasks draft
+    FAILED = "FAILED"  # RFC 10051
 
 
 def _items_of(calendar: icalendar.Calendar) -> list[icalendar.Component]:

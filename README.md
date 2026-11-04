@@ -43,7 +43,7 @@ with Workspace([Backend.open(tempfile.mkdtemp())]) as workspace:
 
 I've been the maintainer of the Python CalDAV client package for many years now.  The ironic thing is that I started using the library because I "didn't want to get my hands dirty".  I had to do some fixes for the library to work towards my server, and soon enough the owner of the project passed me the maintainer hat.  To be honest, I think neither the CalDAV protocol nor the iCalendar format is a particularly good standard.  They are sort of the only open standards we have, so it's important to support them, but it's also important to support new and emerging standards.
 
-There are no good standards for tasks.  Apart from iCalendar, which supports task lists but not very well, there are only vendor formats.  For instance, iCalendar has no way to record a time estimate or the time spent on a task.  The estimate is about to be fixed (`ESTIMATED-DURATION` in the [task extensions draft](https://datatracker.ietf.org/doc/draft-ietf-calext-ical-tasks/), now in the RFC Editor queue), but time spent is still a gap.  See [the task model survey](docs/design/TASK_MODEL_SURVEY.md).
+There are no good standards for tasks.  Apart from iCalendar, which supports task lists but not very well, there are only vendor formats.  For instance, iCalendar has no way to record a time estimate or the time spent on a task.  The estimate was fixed in October 2026 (`ESTIMATED-DURATION` in [RFC 10051](https://datatracker.ietf.org/doc/html/rfc10051)), but time spent is still a gap.  See [the task model survey](docs/design/TASK_MODEL_SURVEY.md).
 
 ## Mission statement
 
@@ -79,7 +79,7 @@ Wanted, but outside the funded scope:
 ## Standards
 
 * iCalendar - RFC 5545, with RFC 7986 (new properties) and RFC 9253 (relationships)
-* The iCalendar task extensions draft (`ESTIMATED-DURATION`)
+* The iCalendar task extensions - RFC 10051 (`ESTIMATED-DURATION`)
 * CalDAV - RFC 4791, through `caldav`
 * JMAP - RFC 8620 and JMAP Calendars, through `calendaring-jmap`
 * vdir, for local file storage

@@ -102,6 +102,12 @@ def test_summarize_keeps_estimate_and_spent_apart() -> None:
     assert sum(by_customer.values(), TimeSummary()) == TimeSummary(estimate=5 * H, spent=7 * H)
 
 
+def test_summarize_commits_no_estimate_for_a_failed_task() -> None:
+    task = Task.new(summary="x", status="FAILED")
+    task.component.add("ESTIMATED-DURATION", icalendar.vDuration(5 * H))
+    assert summarize([(task, [])], group_by=lambda _: "all") == {"all": TimeSummary()}
+
+
 def test_summarize_clips_to_the_window() -> None:
     task = Task.new(summary="x")
     entries = [

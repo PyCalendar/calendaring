@@ -99,22 +99,22 @@ plann's design notes, read it as the deadline; plann pins a task to the calendar
 with a separate `VEVENT` linked through `RELATED-TO` instead of moving the task's
 own timestamps.
 
-The tasks draft (1.2) settles on the first reading. That was also plann's original
+RFC 10051 (1.2) settles on the first reading. That was also plann's original
 idea for `DTSTART`; it was abandoned only because the estimate needed somewhere to
 live, which `ESTIMATED-DURATION` now provides.
 
-### 1.2 The task extensions draft — the estimate gap is closing
+### 1.2 RFC 10051, the task extensions — the estimate gap is closed
 
-[`draft-ietf-calext-ical-tasks-17`](https://datatracker.ietf.org/doc/draft-ietf-calext-ical-tasks/)
-("Task Extensions to iCalendar", Apthorp & Douglass, 10 December 2025) is a draft intended to become a Proposed Standard updating RFC 5545.  It is at the RFC Editor, so it seems very likely that it will be published as an RFC within months.  It focuses mostly on workflows involving multiple users.  It adds granularity to task statuses, and it introduces a new property `ESTIMATED-DURATION`, which closes the estimate half of the README's gap.
+[RFC 10051](https://datatracker.ietf.org/doc/html/rfc10051)
+("Task Extensions to iCalendar", Apthorp & Douglass, October 2026) is a Standards Track RFC updating RFC 5545.  This survey was written against draft -17; the changes in the published RFC are editorial.  The RFC focuses mostly on workflows involving multiple users.  It adds granularity to task statuses, and it introduces a new property `ESTIMATED-DURATION`, which closes the estimate half of the README's gap.
 
 `ESTIMATED-DURATION` is the estimate, and `DTSTART` - `DUE` is the *window* a task may be performed in.  The model in plann is to use `DURATION` as the estimate, and derive `DTSTART` from it.
 
-It seems pretty obvious that we should support the tasks draft - time estimates should be embedded in `ESTIMATED-DURATION`, and `DURATION` should be the window for performing the task. This means icalendar task data created through plann has to be rewritten to support the tasks draft.
+It seems pretty obvious that we should support RFC 10051 - time estimates should be embedded in `ESTIMATED-DURATION`, and `DURATION` should be the window for performing the task. This means icalendar task data created through plann has to be rewritten to support RFC 10051.
 
 ### 1.3 The time-spent gap is **not** closing
 
-Neither the tasks draft nor JSCalendar defines anything for time actually spent.  There is also no de-facto convention to be compatible with.  Every known client that tracks time spent keeps it to itself, it's not exported to iCalendar format or to other systems.  There are no known systems using X-properties for storing this information.
+Neither RFC 10051 nor JSCalendar defines anything for time actually spent.  There is also no de-facto convention to be compatible with.  Every known client that tracks time spent keeps it to itself, it's not exported to iCalendar format or to other systems.  There are no known systems using X-properties for storing this information.
 
 A quick check of a handful of clients on 2026-09-24:
 
@@ -137,7 +137,7 @@ with his own assessment:
 2. A new `PARTSTAT` value, `X-ATTENDED` — his current preferred workaround
 3. A new component, `VTIMESPENT`
 
-Note that candidate 2 gets more complicated when considering the tasks draft; it adds `PARTSTAT=FAILED` and a whole `VSTATUS` component in the same area of the spec.
+Note that candidate 2 gets more complicated when considering RFC 10051; it adds `PARTSTAT=FAILED` and a whole `VSTATUS` component in the same area of the spec.
 
 ### 1.4 RFC 9253 — relationships are solved
 
@@ -172,10 +172,10 @@ to iCalendar.
 Its `Task` object has those properties:
 
 - **`estimatedDuration`** (`Duration`) — the estimate, as a first-class field, no
-  overloading of the window (§5.2.3) - mirrors the `ESTIMATED-DURATION` from the tasks draft
+  overloading of the window (§5.2.3) - mirrors the `ESTIMATED-DURATION` from RFC 10051
 - **`percentComplete`** (`UnsignedInt`, 0–100) - as in RFC 5545
 - **`progress`** (`String`) — `needs-action`, `in-process`, `completed`, `failed`,
-  `cancelled`, the tasks draft's values minus `PENDING`, but also extensible via the IANA "JSCalendar Enum Values" registry or a
+  `cancelled`, RFC 10051's values minus `PENDING`, but also extensible via the IANA "JSCalendar Enum Values" registry or a
   vendor prefix (§5.2.5).
 - **`progressUpdated`** (`UTCDateTime`) — when `progress` was last set (§5.2.6)
 - **per-participant `progress` and `progressUpdated`**, with the task-level
@@ -189,7 +189,7 @@ Its `Task` object has those properties:
 
 ### 1.6 Differences
 
-| Capability | RFC 5545 | + tasks draft | RFC 9253 | JSCalendar |
+| Capability | RFC 5545 | + RFC 10051 | RFC 9253 | JSCalendar |
 |---|---|---|---|---|
 | Time estimate | overloaded onto `DURATION` | **`ESTIMATED-DURATION`** | — | **`estimatedDuration`** |
 | Status | 4 values | 6 values + `VSTATUS` | — | 5 values, extensible |
@@ -795,17 +795,17 @@ declares the log unsupported and accepts writes of the aggregate.
 
 - **Binary** — Gitea, GitLab (`open`/`closed`), Vikunja and Kanboard (a `done`
   flag). Everything richer lives in labels or board columns.
-- **Fixed small enum** — Taskwarrior (4), iCalendar/EteSync (4, or 6 with the
-  tasks draft), JSCalendar (5).
+- **Fixed small enum** — Taskwarrior (4), iCalendar/EteSync (4, or 6 with
+  RFC 10051), JSCalendar (5).
 - **Configurable** — org-mode keywords, Kanboard columns, OpenProject status
   resources, RT queue lifecycles. RT alone also models the legal *transitions*.
 
 **A normalised status enum is necessary and insufficient.** The
-model needs both: a normalised value drawn from the tasks draft's six
+model needs both: a normalised value drawn from RFC 10051's six
 (`PENDING`, `NEEDS-ACTION`, `IN-PROCESS`, `COMPLETED`, `CANCELLED`, `FAILED`),
 and the backend's **native status string preserved alongside it**, because
 round-tripping a Kanboard card through a normalised enum would otherwise move
-it to a different column. The tasks draft's six values are a good
+it to a different column. RFC 10051's six values are a good
 normalisation target precisely because they are the widest fixed vocabulary
 anyone has standardised.
 
@@ -929,7 +929,7 @@ The `time_log` consists of TimeEntries that can be summed up to get the actual t
 In addition extra timestamps may be applied:
 
 * Creation time for the task
-* Earliest possible start (`dtstart` in tasks draft)
+* Earliest possible start (`dtstart` in RFC 10051)
 * Expected start
 * Expected completion
 * Due
@@ -1054,8 +1054,8 @@ architecture, and belong with 2.2 rather than 2.5).
 - [RFC 5545 — iCalendar](https://datatracker.ietf.org/doc/html/rfc5545)
 - [RFC 8984 — JSCalendar](https://www.rfc-editor.org/rfc/rfc8984.txt)
 - [RFC 9253 — Support for iCalendar Relationships](https://datatracker.ietf.org/doc/html/rfc9253)
-- [draft-ietf-calext-ical-tasks-17 — Task Extensions to iCalendar](https://datatracker.ietf.org/doc/draft-ietf-calext-ical-tasks/)
-  ([text of -17](https://www.ietf.org/archive/id/draft-ietf-calext-ical-tasks-17.txt))
+- [RFC 10051 — Task Extensions to iCalendar](https://datatracker.ietf.org/doc/html/rfc10051)
+  (the survey was written against [draft -17](https://www.ietf.org/archive/id/draft-ietf-calext-ical-tasks-17.txt))
 
 ### Systems surveyed
 - Gitea — [`modules/structs/issue.go`](https://github.com/go-gitea/gitea/blob/main/modules/structs/issue.go), [`issue_tracked_time.go`](https://github.com/go-gitea/gitea/blob/main/modules/structs/issue_tracked_time.go), [`issue_stopwatch.go`](https://github.com/go-gitea/gitea/blob/main/modules/structs/issue_stopwatch.go)

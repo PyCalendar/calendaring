@@ -52,7 +52,7 @@ caller can lower that to a warning or allow it. Emulation is used only when
 the result is the same or the weaker guarantee is documented (an emulated
 conditional write can race), and `verify=True` reads a write
 back to check it (**A5**, [§5.3](#53-what-happens-when-the-caller-asks-for-something-unsupported)).
-Fields iCalendar has no property for go to RFC 9253 or the tasks draft
+Fields iCalendar has no property for go to RFC 9253 or RFC 10051
 first, and `X-PYCAL-*` only as a last resort (**A9**,
 [§3.6](#36-properties-with-no-standard-home)).
 
@@ -810,12 +810,12 @@ Incorporates [survey Part 4](TASK_MODEL_SURVEY.md#part-4-a-proposed-task-model).
 
 ```python
 class TaskStatus(StrEnum):              # values are the iCalendar strings
-    PENDING = "PENDING"                 # tasks draft
+    PENDING = "PENDING"                 # RFC 10051
     NEEDS_ACTION = "NEEDS-ACTION"
     IN_PROCESS = "IN-PROCESS"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
-    FAILED = "FAILED"                   # tasks draft
+    FAILED = "FAILED"                   # RFC 10051
 
 class Task(Item):                       # component is an icalendar.Todo
     native_status: str | None           # see "Native passthrough"; not in the iCalendar data
@@ -830,19 +830,21 @@ class Task(Item):                       # component is an icalendar.Todo
 Everything else is a property of the `VTODO`, read and written through
 `component`. `TaskStatus` is the vocabulary backends map `STATUS` to and
 from. It is not a field: `icalendar.enums.STATUS` has no `PENDING` or
-`FAILED`, which the tasks draft adds, so those two are a candidate for
-`icalendar` too. `set_duration()` is a method rather than a property
+`FAILED`, which RFC 10051 adds, so those two are a candidate for
+`icalendar` too ([issue 2055](https://github.com/collective/icalendar/issues/2055)). Until then `component.status` raises `ValueError` on them,
+and `component.get("STATUS")` is the way to read them. `set_duration()` is a method rather than a property
 because it changes two of them.
 
 Decisions in it, each from the survey:
 
-- **`DTSTART` means earliest sensible start.** That is the tasks draft's
-  reading and the first in the survey's table; the other senses the survey
+- **`DTSTART` means earliest sensible start.** That is RFC 10051's
+  reading (§5.1) and the first in the survey's table; the other senses the survey
   found (planned start, expected completion) get their own properties instead
   of overloading it. Actual start comes from the time log ([roadmap 1.6](ROADMAP.md#16-time-tracking-model-and-api)), not from a field.
-- **`duration` is derived, not stored.** On a task, `DURATION` is either
-  `DUE − DTSTART` or a misused estimate. `icalendar`'s `Todo.duration`
-  reads `DUE − DTSTART` (or `DURATION` when only that is present), and
+- **`duration` is derived, not stored.** On a task with a `DTSTART`, `DURATION` is
+  either `DUE − DTSTART` or a misused estimate. `icalendar`'s `Todo.duration`
+  reads `DUE − DTSTART` (or `DURATION` when only that is present, which
+  RFC 10051 §11.1 makes legal), and
   `task.set_duration(d, keep="due" | "start")` moves the other end, as
   caldav's `set_duration(movable_attr=…)` does; plann uses both. The
   default keeps `DUE`, as caldav's does, because a deadline is more often
@@ -856,11 +858,20 @@ Decisions in it, each from the survey:
 - **`priority` is iCalendar's 0–9.** The survey found five incompatible
   scales; the mapping to each is the backend's, documented as lossy.
   plann's semantics for 1–9 sit on top of this and are plann's.
+- **Whether `FAILED` is final is left open**, because RFC 10051 is very
+  unclear on it. §9.1 defines `PARTSTAT=FAILED` as "To-do cannot be
+  completed", but that is the participant's status. §11.2 says a task with
+  `STATUS:FAILED` "may need some follow-up" from the Organizer "to reschedule
+  or cancel", and Appendix A.3 ends its lifecycle on `FAILED`. So the library
+  is not consistent yet: `summarize()` counts no estimate for such a task and
+  a two-state tracker stores it as `COMPLETED`, while `include_completed=False`
+  still returns it, as `icalendar-searcher` excludes only `COMPLETED` and
+  `CANCELLED`. Full support of RFC 10051 is not on the roadmap.
 - **Assignees are the task's `ATTENDEE`s** (`component.attendees`), as on
-  any other component. The tasks draft (section 6) says it in so
-  many words: "Tasks are assigned to actors using one or more RFC5545
-  'ATTENDEE' properties and/or one or more RFC9073 'PARTICIPANT'
-  calendar components." So the standard has no gap here, and no `X-`
+  any other component. RFC 10051 (section 6) says it in so
+  many words: "Tasks are assigned to actors using one or more 'ATTENDEE'
+  properties [RFC5545] and/or one or more 'PARTICIPANT' calendar
+  components [RFC9073]". So the standard has no gap here, and no `X-`
   property is needed. What looks like a gap is that a tracker knows a
   login (`alice`), while `ATTENDEE` takes a calendar address. A calendar
   address is any URI, not only `mailto:` (RFC 5545 §3.3.3), so the Gitea
@@ -951,8 +962,8 @@ END:VEVENT
 - **Who did the work is a `PARTICIPANT`, never an `ATTENDEE`.**  RFC 9073
   §7.1.1 makes a participant schedulable only when its
   `CALENDAR-ADDRESS` matches an `ATTENDEE`.  With none, no server sends
-  invitations, which an `ATTENDEE` would make it do (RFC 6638).  The
-  tasks draft (§6) assigns with the same component.  An entry may name
+  invitations, which an `ATTENDEE` would make it do (RFC 6638).
+  RFC 10051 (§6) assigns with the same component.  An entry may name
   several people; one duration then applies to each.  Two people who
   spent different times log two entries.
 - **`X-PYCAL-TIME-ENTRY` marks it**, so the entry is recognised in any
@@ -989,7 +1000,8 @@ END:VEVENT
 **For `sum_hours`**, `calendaring.timetracking.summarize(pairs, group_by=…,
 window=(start, end))` groups `(item, entries)` pairs into
 `TimeSummary(estimate, spent)` per key.  `estimate` is the
-`ESTIMATED-DURATION` of the open tasks, and `spent` the logged time.  The
+`ESTIMATED-DURATION` of the open tasks (not `COMPLETED`, `CANCELLED` or
+`FAILED`), and `spent` the logged time.  The
 two are kept apart, since committed and spent time answer different
 questions.  The window clips entries, prorating one that straddles an
 edge; an entry with no start counts by when it was logged.
@@ -1020,7 +1032,7 @@ and are not part of the model.
 
 ### 3.6 Properties with no standard home
 
-[D6](PRIOR_ART_AND_DECISIONS.md#d6-canonical-in-memory-model) sets the order: an RFC 5545 property; then RFC 9253 or the tasks draft;
+[D6](PRIOR_ART_AND_DECISIONS.md#d6-canonical-in-memory-model) sets the order: an RFC 5545 property; then RFC 9253 or RFC 10051;
 then an `X-` property under one documented prefix. **The prefix is
 `X-PYCAL-`**, after the project's name, [pycal.org](https://pycal.org)
 (the GitHub organisation is `pycalendar` only because `pycal` was taken),
