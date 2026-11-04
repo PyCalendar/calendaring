@@ -2,15 +2,21 @@
 
 *One Python API for calendars and task lists: CalDAV, JMAP, iCalendar feeds, local files and issue trackers.*
 
-**Purpose:** today, a program that works with calendar data has to pick a library for each place the data lives: `caldav` for a CalDAV server, `calendaring-jmap` for a JMAP server, `icalendar` and file handling for `.ics` files on disk.  This library gives one way to read and change that data, wherever it lives.  An application written against it can be pointed at a CalDAV server, a local `.ics` file or an issue tracker by changing its configuration, not its code.  Keeping two of those systems in step is a different job, done by [calendaring-sync](https://github.com/pycalendar/calendaring-sync).  The design is in [docs/design/API_DESIGN.md](docs/design/API_DESIGN.md).
+("Calendaring" is defined by RFC 5545 to cover tasks too, but few people realize that)
 
-The library is called `calendaring`: the same name on GitHub, on PyPI and as the import (see [the 0.3 decisions](docs/design/PRIOR_ART_AND_DECISIONS.md#d2-the-name)).  It was earlier called `calendaring-client`.  "Calendaring" is the IETF's word, and in RFC 5545 it covers tasks too, but few people know that, so the tagline above carries the message that this library supports tasks and not only events.
+## Mission statement
+
+This is intended to be a general Python API for accessing task and calendaring information, regardless of where it's stored and how to access the backend.  It should provide a clean, general and well-documented interface.  It should also support a clean, general and well-documented [configuration file](docs/design/CONFIGURATION_PROPOSAL.md), fully backward-compatible with the configuration file used by the caldav library.  Hence, downstream application developers handling calendar data can easily let their users select between a wide range of backends, all easily configured in the same configuration honored by other calendaring applications.
+
+While this library in theory can be used to import/export things between e.g. a caldav calendar and an issue tracker, keeping different systems in step involves quite some complexity; the [calendaring-sync](https://github.com/pycalendar/calendaring-sync) library was made to solve this problem.
 
 ## Status
 
 **Pre-alpha.**  0.1.0 is the first release.  It has the unified API in both sync and async mode, a CalDAV backend (over the `caldav` library), a files backend (vdir directories and single `.ics` files), an in-memory reference backend, a configuration file shared with caldav, time tracking on top of ordinary calendar events, and a conformance suite every backend is tested against (`calendaring.testing`).  The API may still change before 1.0.  Which of caldav's test servers the CalDAV backend has been run against, and with what result, is in [docs/caldav-servers.md](docs/caldav-servers.md).
 
 The plan and its status are in [docs/design/ROADMAP.md](docs/design/ROADMAP.md).
+
+While version 0.1.0 supports only the `caldav` library and local files, iCalendar feeds, JMAP and a first issue tracker come later (see the [roadmap](docs/design/ROADMAP.md)).
 
 ## Installation and usage
 
@@ -39,24 +45,22 @@ with Workspace([Backend.open(tempfile.mkdtemp())]) as workspace:
 
 `AsyncWorkspace`, `AsyncBackend` and so on are the async equivalents.
 
-## Background
+## Background and Personal Motivation
 
-I've been the maintainer of the Python CalDAV client package for many years now.  The ironic thing is that I started using the library because I "didn't want to get my hands dirty".  I had to do some fixes for the library to work towards my server, and soon enough the owner of the project passed me the maintainer hat.  To be honest, I think neither the CalDAV protocol nor the iCalendar format is a particularly good standard.  They are sort of the only open standards we have, so it's important to support them, but it's also important to support new and emerging standards.
+I've been the maintainer of the Python CalDAV client package for many years now.  The ironic thing is that I started using the library because I "didn't want to get my hands dirty".  I had to do some fixes for the library to work towards my server, and soon enough the owner of the project passed me the maintainer hat.  To be honest, I think neither the CalDAV protocol nor the iCalendar format can be said to be an excellent standard - but they are (or, until JMAP and JSCalendar, have been) the only open standards we have, so it's important to support them.  It's also important to support new and emerging standards.
 
-There are no good standards for tasks.  Apart from iCalendar, which supports task lists but not very well, there are only vendor formats.  For instance, iCalendar has no way to record a time estimate or the time spent on a task.  The estimate was fixed in October 2026 (`ESTIMATED-DURATION` in [RFC 10051](https://datatracker.ietf.org/doc/html/rfc10051)), but time spent is still a gap.  See [the task model survey](docs/design/TASK_MODEL_SURVEY.md).
+Over time there have been feature requests for supporting JMAP and iCalendar feeds in the caldav library, but those things do not really belong in a library named `caldav`.  That's one of my motivations for making the calendaring library.
 
-## Mission statement
-
-This is intended to be a general Python API for accessing task and calendaring information, regardless of where it's stored and how to access the backend.  Version 0.1.0 is not much more than a wrapper for the `caldav` library and local files - but it provides a clean, general and well-documented interface, and a clean, general and well-documented [configuration file](docs/design/CONFIGURATION_PROPOSAL.md).  iCalendar feeds, JMAP and a first issue tracker come later (see the [roadmap](docs/design/ROADMAP.md)).
-
-I've considered supporting other standards than CalDAV in the `caldav` library, but it's outside the scope for that library - hence the need for another package.
+There are no good standards for tasks.  Apart from iCalendar, which supports task lists but not very well, there are only vendor formats.  For instance, iCalendar has no way to record a time estimate or the time spent on a task.  The estimate gap has been fixed (new property `ESTIMATED-DURATION`) in [RFC 10051](https://datatracker.ietf.org/doc/html/rfc10051), but time spent is still a gap.  Probably mostly due to this, lots of different open source products exist for handling tasks and issues, but few of them support any standards for exchanging the data.  See [the task model survey](docs/design/TASK_MODEL_SURVEY.md).
 
 ### Personal motivation
 
-* I feel that the combination of a lack of a good task list and "too many TODO-lists" has been a consistent pain for most of my life.
-* I would like to have all relevant tasks and calendar events open in front of me when planning my days, weeks and months regardless of where the tasks are stored.
-* I'd like to throw standardized attributes on my tasks and issues (like time spent, time estimate, priority, due-time) regardless of where they exist (this may involve synchronizing information from external systems with my own calendar/task store).  I do hope that this library can help me achieve this.
+* I feel that the combination of a lack of a good task list and "too many TODO-lists" has been a consistent pain for most of my life (I had my first thought of "doing something with it" already as a child in the 80s).
+* I would like to have all relevant tasks and events from various issue trackers, task lists and calendars open in front of me when planning my days, weeks and months regardless of where the tasks are stored.
+* I'd like to throw standardized attributes on my tasks and issues (like time spent, time estimate, priority, due-time) regardless of where they exist.  I do hope that this library can help me achieve this.
 * I have the [`plann`](https://github.com/tobixen/plann) utility, a CLI and library for more advanced calendaring and task management.  It offers things that are out of the scope of both CalDAV and this library, including "panic planning" where it tries to fit the tasks with the highest priority into the available time before the deadlines.  It uses the `caldav` library, but I'd like to use it towards other systems as well.  `plann` will be the first real user of this library.
+
+I've considered supporting other standards than CalDAV in the `caldav` library, but it's outside the scope for that library - hence the need for another package.
 
 ## Backends
 
