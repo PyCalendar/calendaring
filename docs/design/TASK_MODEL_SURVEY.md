@@ -106,7 +106,7 @@ live, which `ESTIMATED-DURATION` now provides.
 ### 1.2 RFC 10051, the task extensions — the estimate gap is closed
 
 [RFC 10051](https://datatracker.ietf.org/doc/html/rfc10051)
-("Task Extensions to iCalendar", Apthorp & Douglass, October 2026) is a Standards Track RFC updating RFC 5545.  This survey was written against draft -17; the changes in the published RFC are editorial.  The RFC focuses mostly on workflows involving multiple users.  It adds granularity to task statuses, and it introduces a new property `ESTIMATED-DURATION`, which closes the estimate half of the README's gap.
+("Task Extensions to iCalendar", Apthorp & Douglass, October 2026) is a Standards Track RFC updating RFC 5545.  This survey was written against draft -17; on the points used here, the changes in the published RFC are editorial.  The RFC focuses mostly on workflows involving multiple users.  It adds granularity to task statuses, and it introduces a new property `ESTIMATED-DURATION`, which closes the estimate half of the README's gap.
 
 `ESTIMATED-DURATION` is the estimate, and `DTSTART` - `DUE` is the *window* a task may be performed in.  The model in plann is to use `DURATION` as the estimate, and derive `DTSTART` from it.
 

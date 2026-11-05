@@ -12,7 +12,9 @@ While this library in theory can be used to import/export things between e.g. a 
 
 ## Status
 
-**Pre-alpha.**  0.1.0 is the first release.  It has the unified API in both sync and async mode, a CalDAV backend (over the `caldav` library), a files backend (vdir directories and single `.ics` files), an in-memory reference backend, a configuration file shared with caldav, time tracking on top of ordinary calendar events, and a conformance suite every backend is tested against (`calendaring.testing`).  The API may still change before 1.0.  Which of caldav's test servers the CalDAV backend has been run against, and with what result, is in [docs/caldav-servers.md](docs/caldav-servers.md).
+**Pre-alpha.**  0.1.0 is the first release.  It hasn't been tested in real life yet, but it comes with a `tests/test_scenarios.py` optimized for human readability, as well as a large conformance suite (`calendaring.testing`).  Every backend is tested against the latter.
+
+It has the unified API in both sync and async mode, a CalDAV backend (over the `caldav` library), a files backend (vdir directories and single `.ics` files), an in-memory reference backend, a configuration file shared with caldav, and time tracking on top of ordinary calendar events. The API may still change before 1.0.  Which of caldav's test servers the CalDAV backend has been run against, and with what result, is in [docs/caldav-servers.md](docs/caldav-servers.md).
 
 The plan and its status are in [docs/design/ROADMAP.md](docs/design/ROADMAP.md).
 
@@ -45,13 +47,13 @@ with Workspace([Backend.open(tempfile.mkdtemp())]) as workspace:
 
 `AsyncWorkspace`, `AsyncBackend` and so on are the async equivalents.
 
-## Background and Personal Motivation
+## Background
 
 I've been the maintainer of the Python CalDAV client package for many years now.  The ironic thing is that I started using the library because I "didn't want to get my hands dirty".  I had to do some fixes for the library to work towards my server, and soon enough the owner of the project passed me the maintainer hat.  To be honest, I think neither the CalDAV protocol nor the iCalendar format can be said to be an excellent standard - but they are (or, until JMAP and JSCalendar, have been) the only open standards we have, so it's important to support them.  It's also important to support new and emerging standards.
 
 Over time there have been feature requests for supporting JMAP and iCalendar feeds in the caldav library, but those things do not really belong in a library named `caldav`.  That's one of my motivations for making the calendaring library.
 
-There are no good standards for tasks.  Apart from iCalendar, which supports task lists but not very well, there are only vendor formats.  For instance, iCalendar has no way to record a time estimate or the time spent on a task.  The estimate gap has been fixed (new property `ESTIMATED-DURATION`) in [RFC 10051](https://datatracker.ietf.org/doc/html/rfc10051), but time spent is still a gap.  Probably mostly due to this, lots of different open source products exist for handling tasks and issues, but few of them support any standards for exchanging the data.  See [the task model survey](docs/design/TASK_MODEL_SURVEY.md).
+There are no good standards for tasks.  Apart from iCalendar, which supports task lists but not very well, and the newer JSCalendar, there are only vendor formats.  For instance, iCalendar has no way to record a time estimate or the time spent on a task.  The estimate gap has been fixed (new property `ESTIMATED-DURATION`) in [RFC 10051](https://datatracker.ietf.org/doc/html/rfc10051), but time spent is still a gap.  Probably mostly due to this, lots of different open source products exist for handling tasks and issues, but few of them support any standards for exchanging the data.  See [the task model survey](docs/design/TASK_MODEL_SURVEY.md).
 
 ### Personal motivation
 
@@ -60,13 +62,11 @@ There are no good standards for tasks.  Apart from iCalendar, which supports tas
 * I'd like to throw standardized attributes on my tasks and issues (like time spent, time estimate, priority, due-time) regardless of where they exist.  I do hope that this library can help me achieve this.
 * I have the [`plann`](https://github.com/tobixen/plann) utility, a CLI and library for more advanced calendaring and task management.  It offers things that are out of the scope of both CalDAV and this library, including "panic planning" where it tries to fit the tasks with the highest priority into the available time before the deadlines.  It uses the `caldav` library, but I'd like to use it towards other systems as well.  `plann` will be the first real user of this library.
 
-I've considered supporting other standards than CalDAV in the `caldav` library, but it's outside the scope for that library - hence the need for another package.
-
 ## Backends
 
 Funded (see [Funding](#funding) and the [roadmap](docs/design/ROADMAP.md)):
 
-* **CalDAV**, through the `caldav` library.  It's (IMO) not a very good standard, but it is sort of the only standard for distributing and updating calendaring information.
+* **CalDAV**, through the `caldav` library.  It's (IMO) not a very good standard, but apart from the newer JMAP it is sort of the only standard for distributing and updating calendaring information.
 * **iCalendar feeds** (read-only, `https://` and `webcal://`).  It has become quite normal to offer users access to calendar data through iCalendar links.  It's much simpler than CalDAV, but offers fewer features.  Several years ago I got requests for feed support in the `caldav` library, and rejected it for being outside its scope.  With [icalendar-searcher](https://github.com/pycalendar/icalendar-searcher), split out of the `caldav` library, search behaves the same towards a CalDAV server and an iCalendar feed.
 * **Local iCalendar files** (`.ics` files and vdir directories), read and write.  The API works the same regardless of whether it is used towards a remote calendar server or towards local files.
 * **JMAP**, through [calendaring-jmap](https://github.com/pycalendar/calendaring-jmap).
@@ -117,6 +117,8 @@ This project is funded through the [NGI Zero Core](https://nlnet.nl/core) fund, 
 fund established by [NLnet](https://nlnet.nl/) with financial support from the
 European Commission's [Next Generation Internet](https://ngi.eu/) programme, under
 the aegis of DG Communications Networks, Content and Technology.
+
+The funding paperwork uses the project's earlier name, `calendaring-client` (see [the name decision](docs/design/PRIOR_ART_AND_DECISIONS.md#d2-the-name)).
 
 ## Licence
 

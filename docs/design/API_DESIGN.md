@@ -867,6 +867,14 @@ Decisions in it, each from the survey:
   a two-state tracker stores it as `COMPLETED`, while `include_completed=False`
   still returns it, as `icalendar-searcher` excludes only `COMPLETED` and
   `CANCELLED`. Full support of RFC 10051 is not on the roadmap.
+  **Update:** I've sent an email to Douglass asking, but while writing the
+  email I already partly deduced the answer: the RFC is participant-focused.
+  For the assignee the task should be considered "closed" (equivalent to
+  `CANCELLED`) when the assignee declares it to be `FAILED` - there is nothing
+  more to be done for the assignee.  It should still count as if it was
+  `NEEDS-ACTION` for the organizer.  However, if the organizer declares it to
+  be `FAILED` (and the status is flipped to `FAILED`), then it's final for
+  everyone and should be counted as if it was `CANCELLED`.
 - **Assignees are the task's `ATTENDEE`s** (`component.attendees`), as on
   any other component. RFC 10051 (section 6) says it in so
   many words: "Tasks are assigned to actors using one or more 'ATTENDEE'
