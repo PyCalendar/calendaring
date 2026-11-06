@@ -1,0 +1,1 @@
+On SOGo, which ignores ``If-None-Match: *``, ``identity.client-native-id`` is now declared ``emulated``: caldav looks the name up before creating an object there, so a create under a name already taken is refused, with a short window between the look-up and the write.
