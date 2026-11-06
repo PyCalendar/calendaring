@@ -121,6 +121,19 @@ class TestFeedProfile(AsyncConformance):
         del collection.store.objects[item.native_id]
 
 
+# Values mapped as the tracker maps them, but with the UID the client gave (Ox's three priorities).
+MAPPED_KEEPING_UIDS = Profile(
+    "mapped-keeping-uids",
+    {**FULL.capabilities, Feature.TASK_PRIORITY: TRACKER.capabilities[Feature.TASK_PRIORITY]},
+    FULL.components,
+)
+
+
+class TestMappedKeepingUidsProfile(AsyncConformance):
+    async def open_backend(self) -> AsyncBackend:
+        return AsyncMemoryBackend(profile=MAPPED_KEEPING_UIDS)
+
+
 # Three more profiles, for the branches the four above leave out.
 EVENTS_ONLY = Profile(
     "events-only",

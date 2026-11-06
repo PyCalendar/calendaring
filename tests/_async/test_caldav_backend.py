@@ -27,6 +27,7 @@ from calendaring import (
 pytest.importorskip("caldav")
 
 from caldav.collection import Calendar  # noqa: E402
+from caldav.compatibility_hints import FeatureSet  # noqa: E402
 from caldav.lib.url import URL  # noqa: E402
 
 from calendaring._async.caldav import _name_of  # noqa: E402
@@ -346,3 +347,39 @@ async def test_get_of_an_object_that_does_not_parse_says_so(
     serve_broken(collection, monkeypatch)
     with pytest.raises(CalendaringError):
         await collection.get("from-phone")
+
+
+@pytest.mark.skipif("multiget.deleted" not in FeatureSet.FEATURES, reason="caldav has no multiget.deleted hint yet")
+async def test_a_deleted_object_is_not_read_back_where_multiget_still_serves_it(
+    xandikos_server: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Zimbra answers a GET of a deleted object with 404, and a multiget of it with the old data."""
+    features = {**xandikos_server.config["features"], "multiget.deleted": {"support": "broken"}}
+    backend = await AsyncBackend.open(
+        xandikos_server.url,
+        kind="caldav",
+        username=xandikos_server.username,
+        password=xandikos_server.password,
+        features=features,
+    )
+    async with backend:
+        collection = await backend.create_collection("multiget-ghosts", components=(Component.TASK,))
+        try:
+            native: Any = collection  # the CalDAV collection, for its calendar and its DAV client
+            live = await collection.add_task(summary="kept")
+            assert live.native_id is not None
+            read = await collection.get_by_native_id(live.native_id)
+            assert (read.uid, read.etag) == (live.uid, live.etag), "read with a GET, ETag and all"
+            stored = await collection.add_task(summary="deleted")
+            assert stored.native_id is not None
+            ghost = await native._backend._dav.multiget(native.calendar, [native._href(stored.native_id)])
+            await stored.delete()
+
+            async def haunted(calendar: Any, urls: list[str]) -> list[Any]:
+                return list(ghost)
+
+            monkeypatch.setattr(native._backend._dav, "multiget", haunted)
+            with pytest.raises(NotFoundError):
+                await collection.get_by_native_id(stored.native_id)
+        finally:
+            await collection.delete_collection()

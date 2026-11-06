@@ -82,6 +82,14 @@ class AsyncDAV:
             found: Any = calendar.multiget([URL.objectify(u) for u in urls])
             return list(await _awaited(cast(Any, found)))
 
+    async def get(self, calendar: Calendar, url: str) -> CalendarObjectResource:
+        """The object at ``url``, read with a GET: ``NotFoundError`` if it is gone."""
+        obj = _resource(self.client, calendar, url)
+        with translated():
+            # No multiget fallback: the reason to GET is a multiget serving deleted objects.
+            await _awaited(obj.load(multiget_fallback=False))
+        return obj
+
     async def etags(self, url: str) -> dict[str, str]:
         with translated():
             # Positional: the sync client's second parameter is props=, which also takes an XML body.

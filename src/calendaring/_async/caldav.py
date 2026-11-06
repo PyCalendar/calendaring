@@ -21,7 +21,12 @@ from urllib.parse import quote, unquote
 import icalendar
 from icalendar_searcher import Searcher
 
-from .._caldav_features import backend_capabilities, collection_capabilities, stored_components
+from .._caldav_features import (
+    backend_capabilities,
+    collection_capabilities,
+    multiget_serves_deleted,
+    stored_components,
+)
 from .._caldav_io import Calendar
 from ..capabilities import Feature
 from ..errors import (
@@ -115,6 +120,8 @@ class AsyncCalDAVCollection(AsyncCollection):
         return self.components & wanted if wanted else self.components
 
     async def _fetch(self, native_id: str) -> StoredObject:
+        if multiget_serves_deleted(self._backend._dav.client.features):  # Zimbra
+            return self._stored(await self._backend._dav.get(self.calendar, self._href(native_id)))
         for obj in await self._backend._dav.multiget(self.calendar, [self._href(native_id)]):
             if obj.data is not None:  # caldav returns a missing href as an object without data
                 return self._stored(obj)

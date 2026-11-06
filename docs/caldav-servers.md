@@ -25,3 +25,14 @@ With caldav 3.7, whose `caldav.testing` has no search-cache helper,
 nothing waits for an index that lags behind writes: three stories fail on
 Bedework 3 (an event or task just written is not found yet), and
 purelymail fails most stories that search.
+
+## The conformance tests: a known failure, 2026-11-03
+
+SOGo adds `RSVP=TRUE` and `PARTSTAT` to an ATTENDEE that had none, and Ox
+adds `EMAIL=`.  caldav records this
+(`save-load.icalendar.attendee-params`), but no capability declaration
+can say that a server *adds* parameters: LOSSY only describes a server
+dropping or rewriting what it was sent.  The round trip and `verify`
+therefore report the attendees on these servers as changed, and the
+tests fail.  Whether verification should tolerate added parameters, or
+`attendees` should count as LOSSY there, is undecided.

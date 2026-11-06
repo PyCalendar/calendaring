@@ -283,7 +283,13 @@ class Collection(ABC):
     def _time_log(self, item: Item) -> list[TimeEntry]:
         return [entry for _, entry in self._log_target()._time_entries(None, None, parent=item.uid)]
 
+    def _storable_entry(self, entry: TimeEntry) -> TimeEntry:
+        """``entry`` less the users the log collection declares lost: a server refusing them would refuse it all."""
+        lost = self._log_target().capabilities.details(Feature.TIME_LOG).get("lost", ())
+        return replace(entry, users=()) if "users" in lost else entry
+
     def _add_time(self, item: Item, entry: TimeEntry) -> TimeEntry:
+        entry = self._storable_entry(entry)
         stored = self._log_target().add(Event(_wrap_component(entry_to_component(entry, parent=item))))
         return entry_from_component(stored.component)[1]
 
@@ -291,7 +297,7 @@ class Collection(ABC):
         assert old.id is not None
         stored = self._log_target().get(old.id)
         component = stored.component  # edited in place: what other clients added stays
-        apply_entry(component, new)
+        apply_entry(component, self._storable_entry(new))
         sequence = int(component.pop("SEQUENCE", 0))
         for name, value in (("SEQUENCE", sequence + 1), ("LAST-MODIFIED", datetime.now(UTC))):
             component.pop(name, None)

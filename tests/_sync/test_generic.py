@@ -611,6 +611,22 @@ def test_a_day_lines_up_per_person_and_may_run_past_midnight() -> None:
     assert late.end.date() > day, "a long day keeps its sum, past midnight"
 
 
+def test_users_declared_lost_are_not_sent() -> None:
+    """Where the server refuses an event with a PARTICIPANT (CCS, GMX), an entry is stored without it."""
+    lossy = {"level": Support.LOSSY, "lost": ["users"]}
+    profile = Profile("no-participants", {**FULL.capabilities, Feature.TIME_LOG: lossy}, FULL.components)
+    collection = MemoryBackend(profile).collection("default")
+    task = collection.add_task(summary="x")
+    alice = ("mailto:alice@example.com",)
+    entry = task.log_time(start=at(3, 9), end=at(3, 10), users=alice)
+    assert entry.users == ()
+    assert entry.id is not None
+    assert "PARTICIPANT" not in (collection.get(entry.id)).to_ical().decode()
+    amended = task.amend_time(entry, users=alice, comment="later")
+    assert amended.users == ()
+    assert "PARTICIPANT" not in (collection.get(entry.id)).to_ical().decode()
+
+
 def test_time_entries_are_not_subtasks() -> None:
     collection = MemoryBackend().collection("default")
     task = collection.add_task(summary="parent")
