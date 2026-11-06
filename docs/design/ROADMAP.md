@@ -392,13 +392,16 @@ therefore has a committed downstream consumer and should not be trimmed.
 - [x] Config file discovery (XDG paths, explicit path, environment)
 - [x] Credential handling: keyring integration, and never requiring secrets in
       plaintext config
-- [ ] Settle the shared file with the caldav and calendaring-jmap
+- [x] Settle the shared file with the caldav and calendaring-jmap
       maintainers: see [CONFIGURATION_PROPOSAL.md](CONFIGURATION_PROPOSAL.md).
       The parser is now a package of its own,
-      [calendaring-config](https://github.com/pycalendar/calendaring-config);
-      caldav has yet to adopt it
-      ([caldav issue #786](https://github.com/python-caldav/caldav/issues/786)),
-      and the file name is still open.
+      [calendaring-config](https://github.com/pycalendar/calendaring-config),
+      and caldav reads its configuration through it since 3.6.0
+      ([caldav PR #804](https://github.com/python-caldav/caldav/pull/804),
+      closing [caldav issue #786](https://github.com/python-caldav/caldav/issues/786)).
+      `$XDG_CONFIG_HOME/pycal/calendar.yaml` is searched first, with caldav's
+      old paths as fallbacks.  calendaring-jmap keeps its own flat file for
+      standalone use, and gets its section passed from calendaring.
 - [x] Check existing conventions first — `caldav`, `plann`, `vdirsyncer`, `khal`, etc — rather
       than inventing a fifth format (probably build on the caldav format)
 - [x] Leave room for backends beyond the funded ones without format changes:

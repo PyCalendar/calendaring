@@ -357,6 +357,33 @@ def test_a_calendar_does_not_hold_what_the_server_refuses_to_store() -> None:
     assert stored_components(features(), listed) == listed  # unhinted: nothing known
 
 
+def test_a_name_is_checked_before_the_put_where_the_server_ignores_if_none_match() -> None:
+    # SOGo: caldav GETs the name first, as the server refuses a duplicate UID and keeps the name
+    ignoring = {"save-load": {"support": "full"}, "save.if-none-match": {"support": "unsupported"}}
+    refusing = {"save.no-uid-conflict": {"support": "quirk", "status": 409, "precondition": False}}
+    server = features({**ignoring, **refusing})
+    table = collection_capabilities(server, ALL)
+    assert table.level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.EMULATED
+    assert "before" in (table[Feature.IDENTITY_CLIENT_NATIVE_ID].note or "")
+    assert (
+        collection_capabilities(hinted(save_load="full"), ALL).level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.FULL
+    )
+    # Zimbra ignores it too, but renames every object: no native id at all
+    renaming = features(
+        {
+            "save-load": {"support": "full"},
+            "save.if-none-match": {"support": "unsupported"},
+            "save-load.stable-url": {"support": "unsupported", "forces_uid_ics": True},
+        }
+    )
+    assert collection_capabilities(renaming, ALL).level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.UNSUPPORTED
+    # Not known to refuse a duplicate UID: caldav searches by UID, which leaves the name unguarded
+    searching = features(ignoring)
+    assert collection_capabilities(searching, ALL).level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.UNSUPPORTED
+    unstable = features({**ignoring, **refusing, "save-load.stable-url": {"support": "unsupported"}})
+    assert collection_capabilities(unstable, ALL).level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.UNSUPPORTED
+
+
 def test_a_calendar_is_made_lossily_where_the_server_ignores_the_component_set() -> None:
     server = hinted(save_load="full", create_calendar="full")
     assert backend_capabilities(server).level(Feature.CREATE_COLLECTION) is Support.FULL
