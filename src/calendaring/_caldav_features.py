@@ -291,7 +291,7 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
             "note": f"the server renames a {', '.join(renamed)} <uid>.ics",
         }
     x_property = features.is_supported("save-load.icalendar.x-property", dict) if _hinted(features) else {}
-    if _level(features, "save-load.icalendar.x-property") is U and not x_property.get("behaviour", "").endswith(
+    if _level(features, "save-load.icalendar.x-property") is U and not (x_property.get("behaviour") or "").endswith(
         "in a task"
     ):  # dropped from events too
         table[Feature.PROPERTIES_PASSTHROUGH] = U

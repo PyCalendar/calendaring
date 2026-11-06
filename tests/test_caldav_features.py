@@ -177,6 +177,18 @@ def test_x_properties_dropped_from_events_too_lower_every_collection() -> None:
     assert events.level(Feature.PROPERTIES_PASSTHROUGH) is Support.UNSUPPORTED
 
 
+def test_an_x_property_hint_with_an_empty_behaviour_is_read() -> None:
+    """A config file may write ``behaviour:`` with no value."""
+    server = features(
+        {
+            "save-load": {"support": "full"},
+            "save-load.icalendar.x-property": {"support": "unsupported", "behaviour": None},
+        }
+    )
+    events = collection_capabilities(server, frozenset({Component.EVENT}))
+    assert events.level(Feature.PROPERTIES_PASSTHROUGH) is Support.UNSUPPORTED
+
+
 @needs_hint("save-load.todo.status")
 def test_statuses_a_task_list_does_not_keep() -> None:
     """Zimbra stores PENDING and FAILED as NEEDS-ACTION and refuses CANCELLED."""

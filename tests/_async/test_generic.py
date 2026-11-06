@@ -612,7 +612,7 @@ async def test_a_day_lines_up_per_person_and_may_run_past_midnight() -> None:
 
 
 async def test_users_declared_lost_are_not_sent() -> None:
-    """Where the server refuses an event with a PARTICIPANT (CCS, Ox, Zimbra...), an entry is stored without it."""
+    """Where the server refuses an event with a PARTICIPANT (CCS, GMX), an entry is stored without it."""
     lossy = {"level": Support.LOSSY, "lost": ["users"]}
     profile = Profile("no-participants", {**FULL.capabilities, Feature.TIME_LOG: lossy}, FULL.components)
     collection = await AsyncMemoryBackend(profile).collection("default")
