@@ -88,6 +88,17 @@ def test_time_zones_follow_the_servers_hint() -> None:
     assert collection_capabilities(server, ALL).level(Feature.TIMEZONES) is Support.UNSUPPORTED
 
 
+def test_floating_times_follow_the_servers_hint() -> None:
+    server = features({"save-load": {"support": "full"}, "save-load.event.floating": {"support": "unsupported"}})
+    table = collection_capabilities(server, ALL)
+    assert table.level(Feature.TIMEZONES_FLOATING) is Support.LOSSY
+    assert table.level(Feature.TIMEZONES) is Support.FULL, "a TZID is kept"
+    assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.TIMEZONES_FLOATING) is Support.FULL
+    # The hint is probed on events: SOGo keeps a task's floating times, so a task list is not told otherwise
+    tasks = collection_capabilities(server, frozenset({Component.TASK}))
+    assert tasks.level(Feature.TIMEZONES_FLOATING) is Support.UNKNOWN
+
+
 def test_a_calendar_without_a_component_cannot_hold_it() -> None:
     table = collection_capabilities(hinted(save_load="full"), frozenset({Component.TASK}))
     assert table.level(Feature.COMPONENT_TASK) is Support.FULL

@@ -73,6 +73,7 @@ class Feature(StrEnum):
     ATTENDEES = "attendees"
     ALARMS = "alarms"
     TIMEZONES = "timezones"
+    TIMEZONES_FLOATING = "timezones.floating"
     DATES = "dates"
     TIME_LOG = "time-log"
 

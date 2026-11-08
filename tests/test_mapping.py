@@ -62,6 +62,17 @@ def test_timezones_lossy_stores_utc() -> None:
     assert planned(event, {Feature.TIMEZONES: Support.FULL})[0] == []
 
 
+def test_floating_lossy_stores_floating_times_in_utc_only() -> None:
+    """Zimbra and SOGo keep a TZID but store a floating time in UTC."""
+    zoned = Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=OSLO))
+    floating = Event.new(summary="y", start=datetime(2026, 11, 3, 9))
+    assert planned(zoned, {Feature.TIMEZONES_FLOATING: Support.LOSSY})[0] == []
+    losses, component = planned(floating, {Feature.TIMEZONES_FLOATING: Support.LOSSY})
+    assert losses == ["DTSTART"]
+    assert component.decoded("DTSTART").tzinfo == UTC
+    assert planned(floating, {Feature.TIMEZONES_FLOATING: Support.FULL})[0] == []
+
+
 def test_dates_lossy_stores_midnight_utc() -> None:
     event = Event.new(summary="x", start=date(2026, 11, 3), end=date(2026, 11, 4))
     event.component.add("EXDATE", [date(2026, 11, 10)])

@@ -1254,6 +1254,7 @@ initial set:
 | `categories`, `attendees` | for every component; on a task, attendees are its assignees |
 | `alarms` | `VALARM` components survive; `UNSUPPORTED` drops them |
 | `timezones` | a time with a `TZID` keeps it (with its `VTIMEZONE`), a floating time stays floating; `LOSSY` stores both in UTC, a floating time read as local time ([§4](#4-search)) |
+| `timezones.floating` | a floating time stays floating, whatever `timezones` says of a time with a `TZID`; `LOSSY` stores it in UTC, read as local time (Zimbra and SOGo keep a `TZID` but not a floating time) |
 | `dates` | a `DATE` value stays a date; `LOSSY` stores midnight UTC |
 | `time-log` | the time log of a task or event ("Time tracking" in [§3.4](#34-task)); `LOSSY` with `details["lost"]`, or `details["total-only"]` |
 

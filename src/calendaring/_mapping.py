@@ -47,6 +47,8 @@ TIME_PROPERTIES = ("DTSTART", "DTEND", "DUE", "RECURRENCE-ID", "RDATE", "EXDATE"
 CONVERSIONS: dict[Feature, Callable[[Any], Any]] = {
     # A time with a TZID, or a floating one (read as local time, as the searcher does), becomes UTC.
     Feature.TIMEZONES: lambda t: t.astimezone(UTC) if isinstance(t, datetime) and t.tzname() != "UTC" else t,
+    # A floating time only, read as local time; a TZID is kept (Zimbra, SOGo).
+    Feature.TIMEZONES_FLOATING: lambda t: t.astimezone(UTC) if isinstance(t, datetime) and t.tzinfo is None else t,
     # A date becomes midnight UTC.
     Feature.DATES: lambda t: (
         t if isinstance(t, datetime) or not isinstance(t, date) else datetime.combine(t, time(), UTC)
@@ -152,9 +154,12 @@ def _convert(component: icalendar.Component, name: str, new: list[Any]) -> Calla
 
 def _time_losses(component: icalendar.Component, capabilities: Capabilities) -> list[Change]:
     changes: list[Change] = []
+    kept = (Support.FULL, Support.EMULATED, Support.UNKNOWN)
     for feature, convert in CONVERSIONS.items():
-        if capabilities.level(feature) in (Support.FULL, Support.EMULATED, Support.UNKNOWN):
+        if capabilities.level(feature) in kept:
             continue
+        if feature is Feature.TIMEZONES_FLOATING and capabilities.level(Feature.TIMEZONES) not in kept:
+            continue  # timezones converts floating times already
         for name in TIME_PROPERTIES:
             if name not in component:
                 continue

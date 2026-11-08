@@ -51,6 +51,7 @@ FROM_SERVER = {
     Feature.TASK_RELATIONS_PARENT: "save-load.icalendar.related-to",
     Feature.TASK_RELATIONS_DEPENDS_ON: "save-load.icalendar.related-to",
     Feature.TIMEZONES: "save-load.event.timezone",
+    Feature.TIMEZONES_FLOATING: "save-load.event.floating",
     Feature.TASK_UNCOMPLETE: "save-load.todo.uncomplete",
 }
 
@@ -140,6 +141,8 @@ def _table(features: Any) -> dict[Feature, Any]:
         table.update(dict.fromkeys(STORED, X))
     for feature, name in FROM_SERVER.items():
         table[feature] = _level(features, name)
+    if table[Feature.TIMEZONES_FLOATING] is U:  # stored, in UTC: Zimbra and SOGo
+        table[Feature.TIMEZONES_FLOATING] = {"level": L, "note": "a floating time is stored in UTC"}
     if table[Feature.CREATE_COLLECTION] is F:
         notes = []
         if _level(features, "create-calendar.with-supported-component-types") is U:
@@ -289,6 +292,9 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
             "lost": ["users"],
             "note": "the server refuses an event with a PARTICIPANT, which names who did the work",
         }
+    if Component.EVENT not in components and _level(features, "save-load.event.floating") is U:
+        # Probed on events, and SOGo keeps a task's floating times: a task list is not known to lose them
+        table[Feature.TIMEZONES_FLOATING] = {"level": X, "note": "floating times are probed on events only"}
     if Component.TASK in components:
         lowered = {**TASK_ONLY_FROM_SERVER, **(TASK_FROM_SERVER if Component.EVENT not in components else {})}
         for feature, name in lowered.items():

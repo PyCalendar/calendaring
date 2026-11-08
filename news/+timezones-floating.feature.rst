@@ -1,0 +1,1 @@
+New capability ``timezones.floating``: whether a floating time stays floating.  The CalDAV backend declares it ``lossy`` where the server stores a floating time in UTC but keeps a ``TZID`` (Zimbra, SOGo), so such a time is written in UTC, read as local time, instead of being reported as changed.
