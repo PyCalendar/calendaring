@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from conftest import wait_out_search_cache
+from conftest import wait_for_server
 
 from calendaring import AsyncBackend
 from calendaring.testing import AsyncConformance
@@ -20,7 +20,7 @@ class CalDAVConformance(AsyncConformance):
 
     async def open_backend(self) -> AsyncBackend:
         backend = await AsyncBackend.open(self.server.url, kind="caldav", **self.server.options)
-        wait_out_search_cache(backend, self.monkeypatch)
+        wait_for_server(backend, self.monkeypatch)
         return backend
 
 

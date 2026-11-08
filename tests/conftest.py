@@ -151,21 +151,31 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(pytest.mark.xdist_group("Radicale"))
 
 
-def wait_out_search_cache(backend: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A search on ``backend`` waits for what is left of its server's search-cache delay since a write.
+def wait_for_server(backend: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``backend``'s writes and searches wait for its server, as caldav's integration tests do.
 
-    Bedework 3 and Purelymail answer from an index that lags behind writes; a user
-    seldom searches within seconds of a write, a story always does.  caldav's own
-    integration tests wait the same way, with the same helper, which caldav ships
-    from 3.8; with an older caldav the stories on those servers may fail.
+    A read of an object waits out the server's ``synchronous-write`` delay since
+    it was written (Bedework 5 makes an object readable a few seconds after the
+    PUT is answered), and so does a search or listing where the server has no
+    search-cache delay of its own.  A search waits
+    for what is left of the search-cache delay since a write: Bedework 3 and
+    Purelymail answer from an index that lags behind writes.  A user seldom reads
+    within seconds of a write, a test always does.  The search-cache helper comes
+    with caldav 3.8; with an older caldav the stories on those servers may fail.
     """
+    _settle_writes(backend._dav.client, monkeypatch)
     try:
         from caldav.collection import Calendar
         from caldav.testing.search_cache_delay import SearchCacheDelay  # type: ignore[import-not-found,unused-ignore]  # caldav 3.8
     except ImportError:
         return
+    from caldav.compatibility_hints import write_delay
+
     client = backend._dav.client
     delay = SearchCacheDelay.from_features(client.features)
+    if delay is None and write_delay(client.features):
+        # Bedework 5 lags in searches and listings too, by the same few seconds
+        delay = SearchCacheDelay(write_delay(client.features))
     if delay is None:
         return
     if inspect.iscoroutinefunction(client.request):
@@ -177,6 +187,51 @@ def wait_out_search_cache(backend: Any, monkeypatch: pytest.MonkeyPatch) -> None
     if not delay.filtered_only:
         # Bedework 3 lags in the etag listing of changes() too, a PROPFIND rather than a search
         monkeypatch.setattr(client, "propfind", _waiting(delay, client.propfind))
+
+
+def _settle_writes(client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A read of an object through ``client`` waits out the server's ``synchronous-write`` delay since it was written.
+
+    caldav's integration tests sleep the delay after every write, which makes a
+    run on Bedework 5 take hours.  Here only a GET of a recently written object,
+    or a REPORT naming it (the multiget a read-back makes), waits.
+    """
+    from urllib.parse import urlsplit
+
+    from caldav.compatibility_hints import write_delay
+
+    delay = write_delay(client.features)
+    if not delay:
+        return
+    request = client.request
+    written: dict[str, float] = {}
+    writes = {"PUT", "DELETE", "MKCALENDAR", "MKCOL", "PROPPATCH", "MOVE", "COPY", "POST"}
+
+    def before(url: Any, method: str, body: Any) -> float:
+        """Seconds to wait before this request; a write is noted instead."""
+        path = urlsplit(str(url)).path
+        now = time.monotonic()
+        if str(method).upper() in writes:
+            written[path] = now
+            return 0.0
+        text = body.decode() if isinstance(body, bytes) else str(body or "")
+        due = [t + delay for p, t in written.items() if p == path or p in text]
+        return max([0.0, *(d - now for d in due)])
+
+    if inspect.iscoroutinefunction(request):
+
+        async def settled(url: Any, method: str = "GET", body: Any = "", *args: Any, **kwargs: Any) -> Any:
+            await asyncio.sleep(before(url, method, body))
+            return await request(url, method, body, *args, **kwargs)
+
+        monkeypatch.setattr(client, "request", settled)
+    else:
+
+        def settled_sync(url: Any, method: str = "GET", body: Any = "", *args: Any, **kwargs: Any) -> Any:
+            time.sleep(before(url, method, body))
+            return request(url, method, body, *args, **kwargs)
+
+        monkeypatch.setattr(client, "request", settled_sync)
 
 
 def _waiting(delay: Any, method: Any) -> Any:
