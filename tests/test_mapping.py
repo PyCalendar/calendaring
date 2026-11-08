@@ -216,3 +216,12 @@ def test_an_attendee_the_server_added_is_no_difference() -> None:
     assert "ATTENDEE" in [d.property for d in differences(sent.icalendar, stranger)]
     instead = stored_as(sent, "ATTENDEE;CN=Admin:mailto:admin@example.com")
     assert [d.property for d in differences(sent.icalendar, instead)] == ["ATTENDEE"]
+
+
+def test_a_dropped_start_is_a_difference() -> None:
+    """Zimbra drops a task's DTSTART: a loss, not a KeyError."""
+    sent = Task.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC))
+    stored = copy.deepcopy(sent.icalendar)
+    del stored.walk("VTODO")[0]["DTSTART"]
+    [loss] = differences(sent.icalendar, stored)
+    assert (loss.property, loss.stored) == ("DTSTART", None)

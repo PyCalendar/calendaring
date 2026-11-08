@@ -274,7 +274,7 @@ def _comparable(component: icalendar.Component, name: str) -> list[Any]:
                 for one in str(value).split(",")
             }
         )
-    if name in INSTANTS and not isinstance(component.get(name), list) and not _recurs(component):
+    if name in INSTANTS and name in component and not isinstance(component[name], list) and not _recurs(component):
         value = component.decoded(name)
         if isinstance(value, datetime) and value.tzinfo is not None:
             return [value.astimezone(UTC)]

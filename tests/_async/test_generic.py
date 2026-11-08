@@ -161,6 +161,39 @@ async def test_reload_finds_a_moved_override() -> None:
     assert (await collection.reload(generated)).component.start == at(2, 9)
 
 
+class Restamps(AsyncMemoryCollection):
+    """A server stamping every component of an object it rewrites (Ox)."""
+
+    async def _update(
+        self, native_id: str, calendar: icalendar.Calendar, *, etag: str | None, wire: bytes | None
+    ) -> StoredObject:
+        for component in calendar.walk("VEVENT"):
+            for name in ("DTSTAMP", "LAST-MODIFIED"):
+                component.pop(name, None)
+                component.add(name, datetime.now(UTC) + timedelta(minutes=1))
+        return await super()._update(native_id, calendar, etag=etag, wire=None)
+
+
+async def test_a_sibling_restamped_by_the_server_has_not_changed() -> None:
+    class Backend(AsyncMemoryBackend):
+        collection_class = Restamps
+
+    collection = await Backend().collection("default")
+    series = Event.new(summary="daily", start=at(1, 9), end=at(1, 10))
+    series.component.add("RRULE", {"FREQ": "DAILY", "COUNT": 5})
+    moved = Event.new(summary="moved", start=at(3, 15), end=at(3, 16), uid=series.uid)
+    moved.component.add("RECURRENCE-ID", at(3, 9))
+    series.icalendar.add_component(moved.component)
+    await collection.add(series)
+    found = await collection.search(event=True, start=at(1, 0), end=at(6, 0), expand=True)
+    by_day = {i.component.decoded("RECURRENCE-ID").day: i for i in found}
+    await collection.delete(by_day[2])
+    await collection.delete(by_day[3])  # the override, its DTSTAMP and LAST-MODIFIED rewritten
+    by_day[4].component["SUMMARY"] = "edited elsewhere"
+    with pytest.raises(ConflictError):
+        await collection.delete(by_day[4], overwrite=False)
+
+
 async def test_a_collection_narrows_a_backend_level_entry() -> None:
     backend = AsyncMemoryBackend()
     backend.capabilities = backend.capabilities.updated({Feature.WRITE: Support.FULL})
