@@ -236,3 +236,16 @@ def test_a_dropped_start_is_a_difference() -> None:
     del stored.walk("VTODO")[0]["DTSTART"]
     [loss] = differences(sent.icalendar, stored)
     assert (loss.property, loss.stored) == ("DTSTART", None)
+
+
+def test_a_property_kept_only_beside_another_is_lost_without_it() -> None:
+    """Zimbra keeps a task's DTSTART only where it has a DUE too."""
+    table = {Feature.TASK_START: {"level": Support.LOSSY, "requires": ["DUE"]}}
+    alone = Task.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC))
+    component = copy.deepcopy(alone.component)
+    [(loss, apply)] = plan_losses(component, Capabilities({**dict.fromkeys(Feature, Support.FULL), **table}))
+    assert (loss.property, loss.stored) == ("DTSTART", None)
+    apply()
+    assert "DTSTART" not in component
+    both = Task.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC), end=datetime(2026, 11, 4, tzinfo=UTC))
+    assert plan_losses(both.component, Capabilities({**dict.fromkeys(Feature, Support.FULL), **table})) == []

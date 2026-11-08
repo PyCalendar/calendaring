@@ -99,6 +99,28 @@ def test_floating_times_follow_the_servers_hint() -> None:
     assert tasks.level(Feature.TIMEZONES_FLOATING) is Support.UNKNOWN
 
 
+@needs_hint("save-load.todo.dtstart-without-due")
+def test_a_task_start_kept_only_with_a_due() -> None:
+    server = features(
+        {"save-load": {"support": "full"}, "save-load.todo.dtstart-without-due": {"support": "unsupported"}}
+    )
+    table = collection_capabilities(server, frozenset({Component.TASK}))
+    assert table.level(Feature.TASK_START) is Support.LOSSY
+    assert table.details(Feature.TASK_START)["requires"] == ["DUE"]
+    assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.TASK_START) is Support.FULL
+
+
+def test_a_completed_kept_only_with_a_status() -> None:
+    """Ox drops COMPLETED from a task without a STATUS."""
+    server = features(
+        {"save-load": {"support": "full"}, "save-load.todo.completed-without-status": {"support": "unsupported"}}
+    )
+    table = collection_capabilities(server, frozenset({Component.TASK}))
+    assert table.level(Feature.TASK_COMPLETED) is Support.LOSSY
+    assert table.details(Feature.TASK_COMPLETED)["requires"] == ["STATUS"]
+    assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.TASK_COMPLETED) is Support.FULL
+
+
 def test_a_calendar_without_a_component_cannot_hold_it() -> None:
     table = collection_capabilities(hinted(save_load="full"), frozenset({Component.TASK}))
     assert table.level(Feature.COMPONENT_TASK) is Support.FULL

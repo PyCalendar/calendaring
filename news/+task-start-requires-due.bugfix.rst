@@ -1,0 +1,1 @@
+On a server that drops a task's start time where the task has no due time (Zimbra), ``task.start`` is declared ``lossy``, and a task with a start but no due is reported as losing its start instead of losing it silently.

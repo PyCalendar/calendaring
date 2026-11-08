@@ -1,0 +1,1 @@
+On a server that drops a task's completion time where the task has no status (Ox), ``task.completed`` is declared ``lossy``, and such a write is reported as losing the completion time instead of losing it silently.

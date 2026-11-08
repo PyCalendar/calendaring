@@ -1218,7 +1218,11 @@ from both is dropped) are enough for the generic layer to report the losses
 itself, so a backend whose mapping is that simple writes no mapper. A
 `LOSSY` entry without `values` is allowed, for a backend with mapping rules
 of its own; the conformance suite can then check only that each value is
-either stored or refused before any I/O.
+either stored or refused before any I/O. A property kept only beside
+another is `LOSSY` with `requires`, the properties it needs: Zimbra keeps a
+task's `DTSTART` only where it has a `DUE`, so `task.start` there is
+`{"level": "lossy", "requires": ["DUE"]}`, and the generic layer reports a
+`DTSTART` without a `DUE` as lost.
 
 `supports()` counts `UNKNOWN` as not supported: it is the view for a caller
 deciding whether to rely on a feature, and nothing promises an unprobed one

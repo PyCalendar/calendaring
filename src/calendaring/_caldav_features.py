@@ -55,6 +55,20 @@ FROM_SERVER = {
     Feature.TASK_UNCOMPLETE: "save-load.todo.uncomplete",
 }
 
+# Feature -> the caldav feature saying a task keeps the property only beside others, those, and a note.
+REQUIRES_FROM_SERVER = {
+    Feature.TASK_START: (
+        "save-load.todo.dtstart-without-due",
+        ["DUE"],
+        "the server drops the DTSTART of a task without a DUE",  # Zimbra
+    ),
+    Feature.TASK_COMPLETED: (
+        "save-load.todo.completed-without-status",
+        ["STATUS"],
+        "the server drops the COMPLETED of a task without a STATUS",  # Ox
+    ),
+}
+
 # Feature -> the caldav feature probed on a task.  A level is the collection's, not a component's, so
 # a calendar holding events too keeps these: lowering them would cost its events what they can keep.
 TASK_FROM_SERVER = {
@@ -303,6 +317,9 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
         for feature in VALUES_FROM_SERVER:  # Ox keeps priorities 1, 5 and 9; Zimbra refuses CANCELLED
             if (declared := _values(features, feature)) is not None:
                 table[feature] = declared
+        for feature, (name, needed, note) in REQUIRES_FROM_SERVER.items():
+            if _level(features, name) is U:
+                table[feature] = {"level": L, "requires": needed, "note": note}
     stable_url = features.is_supported("save-load.stable-url", dict) if _hinted(features) else {}
     if stable_url.get("forces_uid_ics"):
         table[Feature.IDENTITY_CLIENT_NATIVE_ID] = {"level": U, "note": "the server renames every object <uid>.ics"}

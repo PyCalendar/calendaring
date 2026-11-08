@@ -207,6 +207,9 @@ def plan_losses(component: icalendar.Component, capabilities: Capabilities) -> l
                 stored = mapping.get(sent, mapping.get(str(sent)))
                 apply = _drop(component, name) if stored is None else _replace(component, name, stored)
                 changes.append((Loss(name, sent, stored), apply))
+        elif level is Support.LOSSY and (needed := capabilities.details(feature).get("requires")):
+            if not any(other in component for other in needed):  # Zimbra: a task's DTSTART needs a DUE
+                changes.append((Loss(name, component[name], None), _drop(component, name)))
     if is_task and "RELATED-TO" in component:
         by_feature: dict[Feature, list[Any]] = {}
         for value in _values(component, "RELATED-TO"):
