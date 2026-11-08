@@ -773,8 +773,8 @@ class AsyncConformance:
             assert support is Support.LOSSY, f"{feature} is declared {support.value} but the write is lossy"
             return
         read = await collection.reload(stored)
-        if support is not Support.LOSSY:
-            assert property_lines(read.component, name) == property_lines(item.component, name)
+        if support is not Support.LOSSY:  # stored as verify sees it: a parameter the server adds loses nothing
+            assert [d for d in differences(item.icalendar, read.icalendar) if d.property == name] == []
 
     @pytest.mark.parametrize("feature", list(VALUE_SAMPLES))
     async def test_values_map_as_declared(self, collection: AsyncCollection, feature: Feature) -> None:

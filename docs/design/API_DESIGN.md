@@ -1359,8 +1359,10 @@ property that was sent, after normalisation, except those the mapper had
 already reported as not storable (a lossy write, above), and skips what
 servers legitimately change: `DTSTAMP`, `SEQUENCE`, `LAST-MODIFIED`, property
 and parameter order, a parameter spelt out at its RFC 5545 default
-(`PARTSTAT=NEEDS-ACTION`, `RSVP=FALSE`, ...), and the identity a backend
-assigns (`uid`, `native_id`, `etag`;
+(`PARTSTAT=NEEDS-ACTION`, `RSVP=FALSE`, ...), a parameter the server
+adds (SOGo's `RSVP=TRUE`, Ox's `EMAIL=`: that loses nothing), an
+attendee it adds (Ox adds the organizer, as a scheduling server does),
+and the identity a backend assigns (`uid`, `native_id`, `etag`;
 [§3.2 Identity](#32-identity)). A difference raises `VerificationError`
 listing what the server dropped or changed. It is not a `LossyWriteError`:
 that one means nothing was sent, while a `VerificationError` means the

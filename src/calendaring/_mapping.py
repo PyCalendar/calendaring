@@ -12,10 +12,11 @@ from __future__ import annotations
 import copy
 import functools
 import hashlib
+import itertools
 import zoneinfo
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time
-from typing import Any
+from typing import Any, TypeVar
 
 import icalendar
 from icalendar.parser import Contentline
@@ -25,6 +26,8 @@ from .items import X_PLANNED_END, X_PLANNED_START
 from .loss import Loss
 
 __all__ = ["Change", "differences", "plan_calendar_losses", "plan_losses", "property_lines"]
+
+T = TypeVar("T")
 
 # A loss and the edit that makes the component storable.
 Change = tuple[Loss, Callable[[], None]]
@@ -80,8 +83,18 @@ PARAMETER_DEFAULTS = {
     "RSVP": "FALSE",
 }
 
+# Parameters a server may add without changing what a line means: an X- one anywhere, and on an
+# attendee or organizer its name, address and scheduling state (SOGo adds RSVP, Ox EMAIL).
+ADDABLE_PARAMETERS = {
+    "ATTENDEE": frozenset({"CN", "EMAIL", "RSVP", "SCHEDULE-AGENT", "SCHEDULE-STATUS", "SCHEDULE-FORCE-SEND"}),
+    "ORGANIZER": frozenset({"CN", "EMAIL", "SCHEDULE-AGENT", "SCHEDULE-STATUS", "SCHEDULE-FORCE-SEND"}),
+}
+
 # Single date-time properties a server may store in UTC instead of with their TZID.
 INSTANTS = frozenset({"DTSTART", "DTEND", "DUE", "COMPLETED", "RECURRENCE-ID", X_PLANNED_START, X_PLANNED_END})
+
+# Properties a server may add lines of without losing what was sent: the organizer as an attendee.
+ADDED_LINES_KEEP_ALL = frozenset({"ATTENDEE"})
 
 # Properties servers legitimately change, and identity a backend may assign (§5.3).
 NOT_VERIFIED = frozenset({"DTSTAMP", "SEQUENCE", "LAST-MODIFIED", "UID"})
@@ -312,9 +325,7 @@ def _stored_as_sent(sent: icalendar.Component, stored: icalendar.Component) -> b
     """Whether ``stored`` holds everything ``sent`` did, as the top level is compared: what a server adds is fine."""
     if sent.name != stored.name:
         return False
-    if any(
-        _comparable(sent, name) != _comparable(stored, name) for name in dict.fromkeys(sent) if name not in NOT_VERIFIED
-    ):
+    if not all(_kept(sent, stored, name) for name in dict.fromkeys(sent) if name not in NOT_VERIFIED):
         return False
     return _matched(sent.subcomponents, stored.subcomponents)
 
@@ -325,12 +336,53 @@ def _matched(sent: list[icalendar.Component], stored: list[icalendar.Component])
     Tried every way, not first come first served: a sent alarm that matches two stored
     ones must not take the one another sent alarm needs.  A component has few.
     """
+    return _paired(sent, stored, _stored_as_sent)
+
+
+def _paired(sent: list[T], stored: list[T], fits: Callable[[T, T], bool]) -> bool:
+    """Each of ``sent`` ``fits`` one of ``stored`` of its own, tried every way."""
     if not sent:
         return True
     first, rest = sent[0], sent[1:]
     return any(
-        _stored_as_sent(first, other) and _matched(rest, stored[:i] + stored[i + 1 :]) for i, other in enumerate(stored)
+        fits(first, other) and _paired(rest, stored[:i] + stored[i + 1 :], fits) for i, other in enumerate(stored)
     )
+
+
+def _kept(sent: icalendar.Component, stored: icalendar.Component, name: str) -> bool:
+    """Whether ``stored`` has ``name`` as ``sent`` had it.
+
+    A parameter the server added that says nothing about the value (``_covered``) is no
+    difference.  One it dropped or changed is, and so is a line less: a stored line holds one
+    sent line only.  A line more is too, except an attendee that is the stored organizer: a
+    scheduling server adds the organizer as one (Ox).
+    """
+    mine, theirs = _comparable(sent, name), _comparable(stored, name)
+    if mine == theirs:
+        return True
+    if not all(isinstance(line, tuple) for line in [*mine, *theirs]):
+        return False
+    if name in ADDED_LINES_KEEP_ALL and len(theirs) > len(mine):
+        organizer = str(stored.get("ORGANIZER", "")).lower()
+        extra = len(theirs) - len(mine)
+        candidates = [i for i, line in enumerate(theirs) if organizer and str(line[2]).lower() == organizer]
+        return any(
+            _paired(mine, [line for i, line in enumerate(theirs) if i not in left_out], _covered)
+            for left_out in itertools.combinations(candidates, extra)
+        )
+    return len(mine) == len(theirs) and _paired(mine, theirs, _covered)
+
+
+def _covered(sent: tuple[Any, ...], stored: tuple[Any, ...]) -> bool:
+    """Whether a stored line, as ``_without_defaults`` gives it, is the sent one with harmless parameters added.
+
+    A parameter left out means its default, so one added with another value (PARTSTAT=DECLINED)
+    changes the line, and so does one that changes how the value reads (TZID, VALUE, RELTYPE).
+    """
+    if (sent[0], sent[2]) != (stored[0], stored[2]) or not set(sent[1]) <= set(stored[1]):
+        return False
+    addable = ADDABLE_PARAMETERS.get(str(sent[0]), frozenset())
+    return all(key.startswith("X-") or key in addable for key, _ in set(stored[1]) - set(sent[1]))
 
 
 def _subcomponents(component: icalendar.Component, kind: str) -> list[icalendar.Component]:
@@ -363,7 +415,7 @@ def differences(sent: icalendar.Calendar, stored: icalendar.Calendar) -> list[Lo
         for name in dict.fromkeys(component):
             if name in NOT_VERIFIED:
                 continue
-            if _comparable(component, name) != _comparable(other, name):
+            if not _kept(component, other, name):
                 mine, theirs = property_lines(component, name), property_lines(other, name)
                 out.append(Loss(name, b"\n".join(mine).decode(), b"\n".join(theirs).decode() or None))
         for kind in dict.fromkeys(str(c.name) for c in [*component.subcomponents, *other.subcomponents]):

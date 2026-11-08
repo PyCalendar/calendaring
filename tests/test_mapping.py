@@ -117,8 +117,60 @@ def test_a_parameter_added_with_its_default_is_no_difference() -> None:
         "ATTENDEE;CUTYPE=individual;PARTSTAT=NEEDS-ACTION;ROLE=REQ-PARTICIPANT;CN=Bob;RSVP=FALSE:mailto:bob@example.com"
     )
     assert differences(sent.icalendar, stored_as(sent, defaults)) == []
-    rsvp = "ATTENDEE;CN=Bob;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:bob@example.com"
-    assert [d.property for d in differences(sent.icalendar, stored_as(sent, rsvp))] == ["ATTENDEE"]
+
+
+def test_a_parameter_the_server_added_is_no_difference() -> None:
+    sent = Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC))
+    sent.component.add("ATTENDEE", "mailto:bob@example.com", parameters={"CN": "Bob"})
+    for added in (
+        "ATTENDEE;CN=Bob;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:bob@example.com",  # SOGo
+        "ATTENDEE;CN=Bob;EMAIL=bob@example.com:mailto:bob@example.com",  # Ox
+    ):
+        assert differences(sent.icalendar, stored_as(sent, added)) == []
+    for changed in (
+        "ATTENDEE:mailto:bob@example.com",
+        "ATTENDEE;CN=Robert;RSVP=TRUE:mailto:bob@example.com",
+        "ATTENDEE;CN=Bob:mailto:robert@example.com",
+    ):
+        assert [d.property for d in differences(sent.icalendar, stored_as(sent, changed))] == ["ATTENDEE"]
+
+
+def test_a_parameter_that_changes_the_meaning_is_a_difference_when_added() -> None:
+    """Only parameters that say nothing about the value may be added: a TZID, PARTSTAT or RELTYPE may."""
+    series = Event.new(summary="x", start=datetime(2026, 11, 3, 9))
+    series.component.add("RRULE", {"FREQ": "DAILY", "COUNT": 3})
+    zoned = (
+        series.icalendar.to_ical()
+        .decode()
+        .replace("DTSTART:20261103T090000", "DTSTART;TZID=Europe/Oslo:20261103T090000")
+    )
+    assert [d.property for d in differences(series.icalendar, icalendar.Calendar.from_ical(zoned))] == ["DTSTART"]
+    meeting = Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC))
+    meeting.component.add("ATTENDEE", "mailto:bob@example.com", parameters={"CN": "Bob"})
+    declined = "ATTENDEE;CN=Bob;PARTSTAT=DECLINED:mailto:bob@example.com"
+    assert [d.property for d in differences(meeting.icalendar, stored_as(meeting, declined))] == ["ATTENDEE"]
+    task = Task.new(summary="x")
+    task.component.add("RELATED-TO", "abc")
+    child = task.icalendar.to_ical().decode().replace("RELATED-TO:abc", "RELATED-TO;RELTYPE=CHILD:abc")
+    assert [d.property for d in differences(task.icalendar, icalendar.Calendar.from_ical(child))] == ["RELATED-TO"]
+
+
+def test_an_x_parameter_the_server_adds_is_no_difference() -> None:
+    sent = Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC))
+    text = sent.icalendar.to_ical().decode().replace("SUMMARY:x", "SUMMARY;X-SERVER-ID=7:x")
+    assert differences(sent.icalendar, icalendar.Calendar.from_ical(text)) == []
+
+
+def test_a_parameter_added_to_one_of_two_lines_is_no_difference() -> None:
+    sent = Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC))
+    sent.component.add("ATTENDEE", "mailto:bob@example.com")
+    sent.component.add("ATTENDEE", "mailto:bob@example.com", parameters={"CN": "Bob"})
+    text = sent.icalendar.to_ical().decode()
+    # The bare line takes the parameter: matched first come first served, the CN=Bob line would be left over.
+    added = text.replace("ATTENDEE:mailto:", "ATTENDEE;CN=Bob;RSVP=TRUE:mailto:")
+    assert differences(sent.icalendar, icalendar.Calendar.from_ical(added)) == []
+    merged = text.replace("ATTENDEE:mailto:bob@example.com\r\n", "")
+    assert [d.property for d in differences(sent.icalendar, icalendar.Calendar.from_ical(merged))] == ["ATTENDEE"]
 
 
 def test_an_unescaped_comma_is_a_difference_and_parameter_lists_are_sets() -> None:
@@ -142,3 +194,25 @@ def test_failed_on_a_two_state_tracker_is_stored_as_completed() -> None:
     assert (loss.property, loss.sent, loss.stored) == ("STATUS", "FAILED", "COMPLETED")
     apply()
     assert task.component["STATUS"] == "COMPLETED"
+
+
+def test_an_attendee_the_server_added_is_no_difference() -> None:
+    """Ox adds the organizer as an attendee (RFC 6638 scheduling): that loses nothing."""
+    sent = Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC))
+    sent.component.add("ATTENDEE", "mailto:bob@example.com", parameters={"CN": "Bob"})
+    added = stored_as(
+        sent,
+        "ATTENDEE;CN=Admin;PARTSTAT=ACCEPTED:mailto:admin@example.com\r\n"
+        "ATTENDEE;CN=Bob;EMAIL=bob@example.com:mailto:bob@example.com\r\n"
+        "ORGANIZER;CN=Admin:mailto:admin@example.com",
+    )
+    assert differences(sent.icalendar, added) == []
+    stranger = stored_as(
+        sent,
+        "ATTENDEE;CN=Eve:mailto:eve@example.com\r\n"
+        "ATTENDEE;CN=Bob:mailto:bob@example.com\r\n"
+        "ORGANIZER;CN=Admin:mailto:admin@example.com",
+    )
+    assert "ATTENDEE" in [d.property for d in differences(sent.icalendar, stranger)]
+    instead = stored_as(sent, "ATTENDEE;CN=Admin:mailto:admin@example.com")
+    assert [d.property for d in differences(sent.icalendar, instead)] == ["ATTENDEE"]
