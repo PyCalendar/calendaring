@@ -172,13 +172,17 @@ def _time_losses(component: icalendar.Component, capabilities: Capabilities) -> 
 
 def _alarm_losses(component: icalendar.Component, capabilities: Capabilities) -> list[Change]:
     alarms = [c for c in component.subcomponents if c.name == "VALARM"]
-    if not alarms or capabilities.level(Feature.ALARMS) is not Support.UNSUPPORTED:
+    level = capabilities.level(Feature.ALARMS)
+    if not alarms or level not in (Support.UNSUPPORTED, Support.LOSSY):
         return []
+    sent = alarms[0].to_ical().decode()
+    if level is Support.LOSSY:  # rewritten in a way not modelled here (Ox): sent as it is
+        return [(Loss("VALARM", sent, sent, note=capabilities[Feature.ALARMS].note), lambda: None)]
 
     def apply() -> None:
         component.subcomponents[:] = [c for c in component.subcomponents if c.name != "VALARM"]
 
-    return [(Loss("VALARM", alarms[0].to_ical().decode(), None), apply)]
+    return [(Loss("VALARM", sent, None), apply)]
 
 
 def plan_losses(component: icalendar.Component, capabilities: Capabilities) -> list[Change]:
@@ -409,6 +413,22 @@ def _by_occurrence(calendar: icalendar.Calendar) -> dict[str | None, icalendar.C
         rid = component.get("RECURRENCE-ID")
         out[None if rid is None else rid.to_ical().decode()] = component
     return out
+
+
+def undeclared(found: list[Loss], capabilities: Capabilities) -> list[Loss]:
+    """The ``differences`` the declaration does not say a write may cause: a ``LOSSY`` alarm may come back changed.
+
+    Changed, not gone: as many alarms must come back as were sent.
+    """
+    if capabilities.level(Feature.ALARMS) is Support.LOSSY:
+        return [
+            loss for loss in found if not (loss.property == "VALARM" and _alarms(loss.sent) == _alarms(loss.stored))
+        ]
+    return found
+
+
+def _alarms(text: str | None) -> int:
+    return (text or "").count("BEGIN:VALARM")
 
 
 def differences(sent: icalendar.Calendar, stored: icalendar.Calendar) -> list[Loss]:

@@ -121,6 +121,26 @@ def test_a_completed_kept_only_with_a_status() -> None:
     assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.TASK_COMPLETED) is Support.FULL
 
 
+@needs_hint("save-load.todo.alarm")
+def test_a_task_alarm_rewritten_is_lossy() -> None:
+    """Ox makes a task's alarm trigger absolute and replaces its description; an event's it keeps."""
+    behaviour = "the alarm's TRIGGER -PT15M is stored as VALUE=DATE-TIME:20270120T114500Z"
+    server = features(
+        {"save-load": {"support": "full"}, "save-load.todo.alarm": {"support": "broken", "behaviour": behaviour}}
+    )
+    tasks = collection_capabilities(server, frozenset({Component.TASK}))
+    assert tasks.level(Feature.ALARMS) is Support.LOSSY
+    assert behaviour in (tasks[Feature.ALARMS].note or "")
+    both = collection_capabilities(server, frozenset({Component.TASK, Component.EVENT}))
+    assert both.level(Feature.ALARMS) is Support.FULL
+
+
+@needs_hint("save-load.todo.alarm")
+def test_a_task_alarm_dropped_is_unsupported() -> None:
+    server = features({"save-load": {"support": "full"}, "save-load.todo.alarm": {"support": "unsupported"}})
+    assert collection_capabilities(server, frozenset({Component.TASK})).level(Feature.ALARMS) is Support.UNSUPPORTED
+
+
 def test_a_calendar_without_a_component_cannot_hold_it() -> None:
     table = collection_capabilities(hinted(save_load="full"), frozenset({Component.TASK}))
     assert table.level(Feature.COMPONENT_TASK) is Support.FULL

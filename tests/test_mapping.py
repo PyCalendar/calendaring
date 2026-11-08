@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import icalendar
 
 from calendaring import Capabilities, Event, Feature, Support, Task, TaskStatus
-from calendaring._mapping import differences, plan_calendar_losses, plan_losses
+from calendaring._mapping import differences, plan_calendar_losses, plan_losses, undeclared
 from calendaring.memory import TRACKER
 
 OSLO = ZoneInfo("Europe/Oslo")
@@ -46,6 +46,39 @@ def test_alarms_unsupported_drops_them() -> None:
     losses, component = planned(event, {Feature.ALARMS: Support.UNSUPPORTED})
     assert losses == ["VALARM"]
     assert component.subcomponents == []
+
+
+def test_alarms_lossy_is_a_loss_and_sent_as_they_are() -> None:
+    """Ox rewrites a task's alarm in a way the backend does not model: it is sent as it is."""
+    event = with_alarm(Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC)))
+    sent = event.component.subcomponents[0].to_ical().decode()
+    table = {**dict.fromkeys(Feature, Support.FULL), Feature.ALARMS: {"level": Support.LOSSY, "note": "rewritten"}}
+    [(loss, apply)] = plan_losses(event.component, Capabilities(table))
+    apply()
+    assert (loss.property, loss.sent, loss.stored, loss.note) == ("VALARM", sent, sent, "rewritten")
+    assert [c.name for c in event.component.subcomponents] == ["VALARM"]
+
+
+def test_a_lossy_alarm_rewritten_is_no_undeclared_difference() -> None:
+    sent = with_alarm(Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC)))
+    stored = copy.deepcopy(sent.icalendar)
+    for alarm in stored.walk("VALARM"):
+        alarm["DESCRIPTION"] = "Open-XChange"
+    found = differences(sent.icalendar, stored)
+    table = dict.fromkeys(Feature, Support.FULL)
+    assert undeclared(found, Capabilities(table)) == found
+    assert undeclared(found, Capabilities({**table, Feature.ALARMS: Support.LOSSY})) == []
+
+
+def test_a_lossy_alarm_dropped_is_still_an_undeclared_difference() -> None:
+    """LOSSY alarms may come back changed (Ox), not be gone."""
+    sent = with_alarm(Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC)))
+    stored = copy.deepcopy(sent.icalendar)
+    for event in stored.walk("VEVENT"):
+        event.subcomponents = []
+    found = differences(sent.icalendar, stored)
+    lossy = Capabilities({**dict.fromkeys(Feature, Support.FULL), Feature.ALARMS: Support.LOSSY})
+    assert [loss.property for loss in undeclared(found, lossy)] == ["VALARM"]
 
 
 def test_timezones_lossy_stores_utc() -> None:

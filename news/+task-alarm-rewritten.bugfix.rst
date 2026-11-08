@@ -1,0 +1,1 @@
+On a server that rewrites a task's alarm (Ox makes its trigger absolute and replaces its description), ``alarms`` is declared ``lossy`` on a task list, and such a write is reported as changing the alarm instead of failing verification.

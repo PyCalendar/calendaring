@@ -1256,7 +1256,7 @@ initial set:
 | `task.start`, `task.due`, `task.completed`, `task.planned`, `task.estimate` | |
 | `task.relations.parent`, `task.relations.depends-on` | |
 | `categories`, `attendees` | for every component; on a task, attendees are its assignees |
-| `alarms` | `VALARM` components survive; `UNSUPPORTED` drops them |
+| `alarms` | `VALARM` components survive; `UNSUPPORTED` drops them; `LOSSY` sends them as they are, to come back rewritten, which `verify` lets pass (Ox makes a task's alarm trigger absolute and replaces its description) |
 | `timezones` | a time with a `TZID` keeps it (with its `VTIMEZONE`), a floating time stays floating; `LOSSY` stores both in UTC, a floating time read as local time ([§4](#4-search)) |
 | `timezones.floating` | a floating time stays floating, whatever `timezones` says of a time with a `TZID`; `LOSSY` stores it in UTC, read as local time (Zimbra and SOGo keep a `TZID` but not a floating time) |
 | `dates` | a `DATE` value stays a date; `LOSSY` stores midnight UTC |
@@ -1331,6 +1331,8 @@ Three cases, matching the roadmap's "raise, degrade, or emulate":
       property: str                     # e.g. "PRIORITY", "STATUS", "RELATED-TO"
       sent: object                      # the value in the item
       stored: object | None             # what the backend will store instead; None if dropped
+      note: str | None = None           # how the server changes it, where the backend cannot say
+                                        # what it stores (Ox rewrites a task's alarm): stored is sent
 
   class LossPolicy(Protocol):
       def __call__(self, losses: Sequence[Loss], item: Item) -> None: ...

@@ -278,6 +278,18 @@ def backend_capabilities(features: Any) -> Capabilities:
     return Capabilities({f: v for f, v in _table(features).items() if f in BACKEND_FEATURES})
 
 
+def _alarm(features: Any) -> Any:
+    """What a task's VALARM becomes: dropped, or rewritten (Ox: an absolute trigger and its own description)."""
+    level = _level(features, "save-load.todo.alarm")
+    if level is not U:
+        return None
+    hint = features.is_supported("save-load.todo.alarm", dict)
+    if hint.get("support") != "broken":
+        return U
+    note = "the server rewrites a task's alarm"
+    return {"level": L, "note": f"{note}: {hint['behaviour']}" if hint.get("behaviour") else note}
+
+
 def collection_capabilities(features: Any, components: frozenset[Component]) -> Capabilities:
     """The server's table, narrowed to what the calendar says it holds."""
     table = {f: v for f, v in _table(features).items() if f not in BACKEND_FEATURES}
@@ -314,6 +326,8 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
         for feature, name in lowered.items():
             if _level(features, name) is U:
                 table[feature] = U
+        if Component.EVENT not in components and (alarm := _alarm(features)) is not None:
+            table[Feature.ALARMS] = alarm
         for feature in VALUES_FROM_SERVER:  # Ox keeps priorities 1, 5 and 9; Zimbra refuses CANCELLED
             if (declared := _values(features, feature)) is not None:
                 table[feature] = declared

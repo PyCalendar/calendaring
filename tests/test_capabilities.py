@@ -68,6 +68,14 @@ def test_stock_loss_policies() -> None:
     assert set(BY_NAME) == {"raise", "warn", "allow"}
 
 
+def test_a_loss_the_backend_cannot_predict_carries_a_note() -> None:
+    """Ox rewrites a task's alarm: what it stores is not known before, so the loss says how instead."""
+    loss = Loss("VALARM", "BEGIN:VALARM...", "BEGIN:VALARM...", note="the trigger is made absolute")
+    assert Loss("PRIORITY", 3, 1).note is None
+    with pytest.warns(LossyWriteWarning, match="the trigger is made absolute"):
+        WARN([loss], Task.new(summary="x"))
+
+
 def test_errors_are_also_the_builtins() -> None:
     assert issubclass(NotFoundError, LookupError)
     assert issubclass(InvalidDataError, ValueError)

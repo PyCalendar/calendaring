@@ -25,7 +25,7 @@ import icalendar
 import recurring_ical_events
 from icalendar_searcher import Searcher
 
-from .._mapping import NOT_VERIFIED, Change, differences, plan_calendar_losses, plan_losses
+from .._mapping import NOT_VERIFIED, Change, differences, plan_calendar_losses, plan_losses, undeclared
 from ..capabilities import BACKEND_FEATURES, COMPONENT_FEATURE, Capabilities, Feature, Support
 from ..errors import (
     AlreadyExistsError,
@@ -439,7 +439,7 @@ class Collection(ABC):
     def _check(self, sent: icalendar.Calendar, result: SyncItem) -> None:
         assert result.native_id is not None
         stored = self._fetch(result.native_id)
-        found = differences(sent, stored.calendar)
+        found = undeclared(differences(sent, stored.calendar), self.capabilities)
         if found:
             raise VerificationError(found)
 
