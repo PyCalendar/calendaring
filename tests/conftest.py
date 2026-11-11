@@ -37,13 +37,7 @@ def serve(module: str, factory: str, config: dict[str, Any]) -> Iterator[Any]:
     server = getattr(testing, factory)(config)
     server.start()
     yield server
-    # stop() leaves these open (RadicaleServer one end of its socketpair,
-    # XandikosServer its thread's event loop): https://github.com/python-caldav/caldav/issues/797
-    leftovers = [getattr(server, name, None) for name in ("shutdown_socket_out", "xapp_loop")]
     server.stop()
-    for leftover in leftovers:
-        if leftover is not None:
-            leftover.close()
 
 
 @pytest.fixture(scope="session")
@@ -53,9 +47,7 @@ def xandikos_server() -> Iterator[Any]:
 
 @pytest.fixture(scope="session")
 def radicale_server() -> Iterator[Any]:
-    # RadicaleServer does not pass its port on to Radicale, which then
-    # listens on its default, 5232: https://github.com/python-caldav/caldav/issues/797
-    yield from serve("radicale", "RadicaleServer", {})
+    yield from serve("radicale", "RadicaleServer", {"port": free_port()})
 
 
 # --- caldav's test servers ----------------------------------------------
@@ -146,9 +138,6 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         for name in (params.params.get(key) for key in ("caldav_server", "where")) if params else ():
             if name in servers:
                 item.add_marker(pytest.mark.xdist_group(name))
-        # Radicale always listens on 5232, and stop() shuts down whichever one answers there
-        if "radicale_server" in getattr(item, "fixturenames", ()):
-            item.add_marker(pytest.mark.xdist_group("Radicale"))
 
 
 def wait_out_search_cache(backend: Any, monkeypatch: pytest.MonkeyPatch) -> None:

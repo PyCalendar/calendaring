@@ -33,8 +33,7 @@ make test
 
 `make dev` also installs caldav and the embedded Xandikos and Radicale
 servers, which the CalDAV backend's conformance tests run against (they are
-skipped when missing).  Radicale listens on its default port, 5232, whatever
-caldav's test helper is told, so that port must be free.
+skipped when missing).
 
 ### Testing against more CalDAV servers
 
