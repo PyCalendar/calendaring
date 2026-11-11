@@ -468,8 +468,8 @@ def undeclared(found: list[Loss], capabilities: Capabilities) -> list[Loss]:
     return found
 
 
-def _alarms(text: str | None) -> int:
-    return (text or "").count("BEGIN:VALARM")
+def _alarms(text: object) -> int:
+    return str(text or "").count("BEGIN:VALARM")
 
 
 def differences(sent: icalendar.Calendar, stored: icalendar.Calendar) -> list[Loss]:
