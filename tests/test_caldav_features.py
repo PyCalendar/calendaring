@@ -421,6 +421,11 @@ def test_a_name_is_checked_before_the_put_where_the_server_ignores_if_none_match
     assert (
         collection_capabilities(hinted(save_load="full"), ALL).level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.FULL
     )
+    # Bedework refuses a taken name with 500, not 412: caldav GETs the name first there too
+    mishandling = features(
+        {"save-load": {"support": "full"}, "save.if-none-match": {"support": "ungraceful"}, **refusing}
+    )
+    assert collection_capabilities(mishandling, ALL).level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.EMULATED
     # Zimbra ignores it too, but renames every object: no native id at all
     renaming = features(
         {

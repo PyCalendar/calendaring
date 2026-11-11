@@ -169,7 +169,8 @@ def _table(features: Any) -> dict[Feature, Any]:
                 notes.append("made for one component only, the first in sorted order")
         if notes:
             table[Feature.CREATE_COLLECTION] = {"level": L, "note": "; ".join(notes)}
-    if _level(features, "save.if-none-match") is U:  # the server overwrites a name already taken
+    # The server overwrites a name already taken, or refuses it otherwise than with 412 (Bedework: 500).
+    if _level(features, "save.if-none-match") is U:
         # caldav then GETs the name before the PUT where a duplicate UID is refused and names are kept (SOGo),
         # and otherwise searches by UID, which leaves the name unguarded
         if str(features.is_supported("save.no-uid-conflict", str)) in {"full", "quirk", "ungraceful"} and (
