@@ -6,8 +6,11 @@ from __future__ import annotations
 import base64
 import dataclasses
 from collections.abc import Iterator
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
+import icalendar
 import pytest
 
 from calendaring import (
@@ -197,6 +200,28 @@ def test_wire_bytes_are_sent_as_given(collection: Collection, monkeypatch: pytes
     reread = collection.get_by_native_id(written.native_id)
     assert reread.wire is not None
     assert Task.from_ical(reread.wire) == reread
+
+
+def test_a_dropped_vtimezone_is_put_back_on_read(
+    collection: Collection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CCS stores TZID=Europe/Oslo but not its VTIMEZONE, which RFC 5545 section 3.2.19 requires."""
+    client = collection._backend._dav.client  # type: ignore[attr-defined]
+    put = client.put
+
+    def dropping(url: str, body: bytes, headers: Any = None) -> Any:
+        calendar = icalendar.Calendar.from_ical(body)
+        calendar.subcomponents = [c for c in calendar.subcomponents if c.name != "VTIMEZONE"]
+        return put(url, calendar.to_ical(), headers)
+
+    monkeypatch.setattr(client, "put", dropping)
+    due = datetime(2026, 11, 20, 10, tzinfo=ZoneInfo("Europe/Oslo"))
+    stored = collection.add_task(summary="zoned", end=due)
+    read = collection.get_by_native_id(stored.native_id or "")
+    assert read.wire is not None
+    assert b"VTIMEZONE" not in read.wire
+    assert [str(tz["TZID"]) for tz in read.icalendar.walk("VTIMEZONE")] == ["Europe/Oslo"]
+    assert read.component.end == due
 
 
 def weakened(collection: Collection, monkeypatch: pytest.MonkeyPatch) -> None:
