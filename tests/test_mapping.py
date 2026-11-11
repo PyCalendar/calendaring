@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import copy
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import icalendar
+import pytest
 
 from calendaring import Capabilities, Event, Feature, Support, Task, TaskStatus
 from calendaring._mapping import differences, plan_calendar_losses, plan_losses, undeclared
@@ -282,3 +284,114 @@ def test_a_property_kept_only_beside_another_is_lost_without_it() -> None:
     assert "DTSTART" not in component
     both = Task.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC), end=datetime(2026, 11, 4, tzinfo=UTC))
     assert plan_losses(both.component, Capabilities({**dict.fromkeys(Feature, Support.FULL), **table})) == []
+
+
+def test_an_rdate_is_lost_where_only_recurrence_rdate_is_unsupported() -> None:
+    """Zimbra drops every RDATE and keeps an RRULE."""
+    event = Event.new(summary="x", start=datetime(2026, 11, 5, 10, tzinfo=UTC))
+    event.component.add("RRULE", {"FREQ": "WEEKLY", "COUNT": 2})
+    event.component.add("RDATE", [datetime(2026, 11, 26, 10, tzinfo=UTC)])
+    table = {**dict.fromkeys(Feature, Support.FULL), Feature.RECURRENCE_RDATE: Support.UNSUPPORTED}
+    [(loss, apply)] = plan_losses(event.component, Capabilities(table))
+    assert (loss.property, loss.stored) == ("RDATE", None)
+    apply()
+    assert "RDATE" not in event.component
+    assert "RRULE" in event.component
+    no_recurrence = {**table, Feature.RECURRENCE: Support.UNSUPPORTED}
+    again = Event.new(summary="x", start=datetime(2026, 11, 5, 10, tzinfo=UTC))
+    again.component.add("RDATE", [datetime(2026, 11, 26, 10, tzinfo=UTC)])
+    assert [loss.property for loss, _ in plan_losses(again.component, Capabilities(no_recurrence))] == ["RDATE"]
+
+
+def test_a_tasks_rdate_is_kept_where_only_events_lose_theirs() -> None:
+    """The hint is probed on events: on a calendar holding tasks too, a task's RDATE is not dropped."""
+    task = Task.new(summary="x", start=datetime(2026, 11, 5, 10, tzinfo=UTC))
+    task.component.add("RDATE", [datetime(2026, 11, 26, 10, tzinfo=UTC)])
+    table = {**dict.fromkeys(Feature, Support.FULL), Feature.RECURRENCE_RDATE: Support.UNSUPPORTED}
+    assert plan_losses(task.component, Capabilities(table)) == []
+
+
+def test_an_override_of_a_dropped_rdate_goes_with_it() -> None:
+    """An override of an RDATE occurrence would be an orphan once the RDATE is gone; one the RRULE gives stays."""
+    master = Event.new(summary="x", start=datetime(2026, 11, 5, 10, tzinfo=UTC))
+    master.component.add("RRULE", {"FREQ": "WEEKLY", "COUNT": 2})
+    master.component.add("RDATE", [datetime(2026, 11, 26, 10, tzinfo=UTC)])
+    calendar = master.icalendar
+    for day in (26, 12):  # the RDATE's occurrence, and the RRULE's second
+        override = icalendar.Event()
+        override.add("UID", master.uid)
+        override.add("DTSTAMP", datetime(2026, 11, 1, tzinfo=UTC))
+        override.add("RECURRENCE-ID", datetime(2026, 11, day, 10, tzinfo=UTC))
+        override.add("DTSTART", datetime(2026, 11, day, 11, tzinfo=UTC))
+        override.add("SUMMARY", f"moved {day}")
+        calendar.add_component(override)
+    table = {**dict.fromkeys(Feature, Support.FULL), Feature.RECURRENCE_RDATE: Support.UNSUPPORTED}
+    [(loss, apply)] = plan_calendar_losses(calendar, Capabilities(table))
+    assert (loss.property, loss.sent, loss.stored) == ("RECURRENCE-ID", "20261126T100000Z", None)
+    apply()
+    assert [str(c["SUMMARY"]) for c in calendar.walk("VEVENT") if "RECURRENCE-ID" in c] == ["moved 12"]
+
+
+def overridden(start: date, rrule: dict[str, Any] | None, rdate: Any, end: date | None = None) -> icalendar.Calendar:
+    """A master with an RDATE and an override of the RDATE's occurrence, which moves it by an hour."""
+    master = Event.new(summary="x", start=start)
+    if end is not None:
+        master.component.add("DTEND", end)
+    if rrule is not None:
+        master.component.add("RRULE", rrule)
+    master.component.add("RDATE", [rdate])
+    calendar = master.icalendar
+    when = rdate[0] if isinstance(rdate, tuple) else rdate
+    override = icalendar.Event()
+    override.add("UID", master.uid)
+    override.add("DTSTAMP", datetime(2026, 11, 1, tzinfo=UTC))
+    override.add("RECURRENCE-ID", when)
+    override.add("DTSTART", when)
+    override.add("SUMMARY", "moved")
+    calendar.add_component(override)
+    return calendar
+
+
+@pytest.mark.parametrize(
+    ("calendar", "orphaned"),
+    [
+        pytest.param(
+            overridden(
+                datetime(2026, 11, 5, 9, tzinfo=UTC),
+                {"FREQ": "DAILY", "COUNT": 3},
+                datetime(2026, 11, 6, 10, tzinfo=UTC),
+                end=datetime(2026, 11, 5, 11, tzinfo=UTC),
+            ),
+            True,
+            id="an-rrule-occurrence-overlaps-it",
+        ),
+        pytest.param(
+            overridden(
+                datetime(2026, 11, 5, 10, tzinfo=UTC),
+                {"FREQ": "WEEKLY", "COUNT": 2},
+                (datetime(2026, 11, 26, 10, tzinfo=UTC), timedelta(hours=1)),
+            ),
+            True,
+            id="period",
+        ),
+        pytest.param(
+            overridden(date(2026, 11, 5), {"FREQ": "WEEKLY", "COUNT": 2}, date(2026, 11, 26)), True, id="all-day"
+        ),
+        pytest.param(
+            overridden(date(2026, 11, 5), {"FREQ": "WEEKLY", "COUNT": 3}, date(2026, 11, 12)),
+            False,
+            id="all-day-the-rrule-gives-it-too",
+        ),
+        pytest.param(
+            overridden(datetime(2026, 11, 5, 10, tzinfo=UTC), None, datetime(2026, 11, 26, 10, tzinfo=UTC)),
+            True,
+            id="no-rrule",
+        ),
+    ],
+)
+def test_an_rdate_occurrences_override_is_orphaned_unless_the_rrule_starts_one_there(
+    calendar: icalendar.Calendar, orphaned: bool
+) -> None:
+    table = {**dict.fromkeys(Feature, Support.FULL), Feature.RECURRENCE_RDATE: Support.UNSUPPORTED}
+    changes = plan_calendar_losses(calendar, Capabilities(table))
+    assert [loss.property for loss, _ in changes] == (["RECURRENCE-ID"] if orphaned else [])

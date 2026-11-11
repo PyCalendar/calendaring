@@ -52,6 +52,7 @@ FROM_SERVER = {
     Feature.TASK_RELATIONS_DEPENDS_ON: "save-load.icalendar.related-to",
     Feature.TIMEZONES: "save-load.event.timezone",
     Feature.TIMEZONES_FLOATING: "save-load.event.floating",
+    Feature.RECURRENCE_RDATE: "save-load.event.recurrences.rdate",
     Feature.TASK_UNCOMPLETE: "save-load.todo.uncomplete",
 }
 
@@ -322,6 +323,8 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
     if Component.EVENT not in components and _level(features, "save-load.event.floating") is U:
         # Probed on events, and SOGo keeps a task's floating times: a task list is not known to lose them
         table[Feature.TIMEZONES_FLOATING] = {"level": X, "note": "floating times are probed on events only"}
+    if Component.EVENT not in components and _level(features, "save-load.event.recurrences.rdate") is U:
+        table[Feature.RECURRENCE_RDATE] = {"level": X, "note": "RDATE is probed on events only"}
     if Component.TASK in components:
         lowered = {**TASK_ONLY_FROM_SERVER, **(TASK_FROM_SERVER if Component.EVENT not in components else {})}
         for feature, name in lowered.items():

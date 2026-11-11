@@ -1248,6 +1248,7 @@ initial set:
 | `identity.client-native-id` | `add(native_id=...)`: the caller may name the stored object (CalDAV href, vdir file name) |
 | `properties.passthrough` | unknown properties and components survive a round trip |
 | `recurrence`, `recurrence.edit-this-and-future` | stores a recurrence set: `RRULE`, `RDATE`, `EXDATE` and the overrides (`RECURRENCE-ID`); `UNSUPPORTED` drops all four, overrides included; [§3.7 Recurrence](#37-recurrence) |
+| `recurrence.rdate` | an event's `RDATE` survives where `recurrence` stores one; `UNSUPPORTED` drops it, and the overrides of the occurrences only it gives, the `RRULE` kept (Zimbra) |
 | `recurrence.edit-occurrence` | `save(occurrence)` merges it into the stored object ([§3.7](#37-recurrence)); `UNSUPPORTED` where the merge is not available yet (Q3) |
 | `task.complete-recurring` | `complete()` on a recurring task or one occurrence of it ([§3.7](#37-recurrence)) |
 | `task.uncomplete` | `uncomplete()` makes a completed task pending again; `UNSUPPORTED` where the server keeps it completed (GMX) |

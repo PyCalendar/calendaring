@@ -15,10 +15,11 @@ import hashlib
 import itertools
 import zoneinfo
 from collections.abc import Callable
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, TypeVar
 
 import icalendar
+import recurring_ical_events
 from icalendar.parser import Contentline
 
 from .capabilities import Capabilities, Feature, Support
@@ -227,6 +228,13 @@ def plan_losses(component: icalendar.Component, capabilities: Capabilities) -> l
             changes.append(
                 (Loss("RELATED-TO", sent if len(sent) > 1 else sent[0], None), _keep_related(component, dropped))
             )
+    if (
+        "RDATE" in component
+        and not is_task  # probed on events, and a calendar's level is for both
+        and "RDATE" not in {loss.property for loss, _ in changes}
+        and capabilities.level(Feature.RECURRENCE_RDATE) is Support.UNSUPPORTED  # Zimbra keeps an RRULE, not an RDATE
+    ):
+        changes.append((Loss("RDATE", component["RDATE"], None), _drop(component, "RDATE")))
     dropped_names = {loss.property for loss, _ in changes}
     changes.extend(c for c in _time_losses(component, capabilities) if c[0].property not in dropped_names)
     return changes
@@ -242,7 +250,7 @@ def _lines(component: icalendar.Component) -> list[bytes]:
 def plan_calendar_losses(calendar: icalendar.Calendar, capabilities: Capabilities) -> list[Change]:
     """The losses across a stored object's components: overrides go with the RRULE they belong to."""
     if capabilities.level(Feature.RECURRENCE) is not Support.UNSUPPORTED:
-        return []
+        return _rdate_override_losses(calendar, capabilities)
     overrides = [c for c in calendar.subcomponents if "RECURRENCE-ID" in c]
     if not overrides or len(overrides) == len([c for c in calendar.subcomponents if c.name != "VTIMEZONE"]):
         return []  # occurrences without a master are items of their own
@@ -251,6 +259,39 @@ def plan_calendar_losses(calendar: icalendar.Calendar, capabilities: Capabilitie
         calendar.subcomponents[:] = [c for c in calendar.subcomponents if "RECURRENCE-ID" not in c]
 
     sent = [c.get("RECURRENCE-ID").to_ical().decode() for c in overrides]
+    return [(Loss("RECURRENCE-ID", sent if len(sent) > 1 else sent[0], None), apply)]
+
+
+def _rdate_override_losses(calendar: icalendar.Calendar, capabilities: Capabilities) -> list[Change]:
+    """An event's override of an occurrence only its RDATE gives goes with the RDATE (Zimbra): it would be an orphan."""
+    if capabilities.level(Feature.RECURRENCE_RDATE) is not Support.UNSUPPORTED:
+        return []
+    master = next((c for c in calendar.walk("VEVENT") if "RECURRENCE-ID" not in c and "RDATE" in c), None)
+    if master is None:
+        return []
+    rrule_only = icalendar.Calendar()
+    rrule_only.add_component(without := copy.deepcopy(master))
+    without.pop("RDATE")
+
+    def rrule_gives(when: Any) -> bool:
+        return "RRULE" in master and any(  # an occurrence starting there, not one merely overlapping it
+            o.decoded("DTSTART") == when
+            for o in recurring_ical_events.of(rrule_only).between(when, when + timedelta(seconds=1))
+        )
+
+    rdates = {d[0] if isinstance(d, tuple) else d for d in _times(master, "RDATE")}  # a PERIOD by its start
+    orphans = [
+        c
+        for c in calendar.walk("VEVENT")
+        if "RECURRENCE-ID" in c and (when := c.decoded("RECURRENCE-ID")) in rdates and not rrule_gives(when)
+    ]
+    if not orphans:
+        return []
+
+    def apply() -> None:
+        calendar.subcomponents[:] = [c for c in calendar.subcomponents if not any(c is o for o in orphans)]
+
+    sent = [c.get("RECURRENCE-ID").to_ical().decode() for c in orphans]
     return [(Loss("RECURRENCE-ID", sent if len(sent) > 1 else sent[0], None), apply)]
 
 

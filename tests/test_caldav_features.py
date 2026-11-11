@@ -99,6 +99,19 @@ def test_floating_times_follow_the_servers_hint() -> None:
     assert tasks.level(Feature.TIMEZONES_FLOATING) is Support.UNKNOWN
 
 
+@needs_hint("save-load.event.recurrences.rdate")
+def test_rdates_follow_the_servers_hint() -> None:
+    """Zimbra drops every RDATE; probed on events, so a task list is not told so."""
+    server = features(
+        {"save-load": {"support": "full"}, "save-load.event.recurrences.rdate": {"support": "unsupported"}}
+    )
+    assert collection_capabilities(server, ALL).level(Feature.RECURRENCE_RDATE) is Support.UNSUPPORTED
+    assert collection_capabilities(server, ALL).level(Feature.RECURRENCE) is Support.FULL
+    tasks = collection_capabilities(server, frozenset({Component.TASK}))
+    assert tasks.level(Feature.RECURRENCE_RDATE) is Support.UNKNOWN
+    assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.RECURRENCE_RDATE) is Support.FULL
+
+
 @needs_hint("save-load.todo.dtstart-without-due")
 def test_a_task_start_kept_only_with_a_due() -> None:
     server = features(
