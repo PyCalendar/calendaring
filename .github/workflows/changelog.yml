@@ -1,10 +1,16 @@
 name: Changelog
 
 # Separate from tests.yml so that adding or removing the skip-changelog
-# label re-runs only this check, not the whole test matrix.
+# label re-runs only this check, not the whole test matrix.  A pull request
+# touching only tests and contributor docs changes nothing a user sees.
+# Such a pull request gets no check run at all, so do not make this check
+# required in branch protection: it would wait forever for one.
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths-ignore:
+      - "tests/**"
+      - "CONTRIBUTING.md"
 
 concurrency:
   group: changelog-${{ github.ref }}

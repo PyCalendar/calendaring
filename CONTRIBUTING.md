@@ -18,7 +18,8 @@ named `<issue or PR number>.<type>.rst`, for example `42.bugfix.rst`. The
 types are listed under `[tool.towncrier]` in `pyproject.toml`: `breaking`,
 `removal`, `feature`, `bugfix`, `documentation`, `deps`, `internal`, `chore`
 and `security`. `towncrier create` makes the file for you. A pull request
-with nothing worth mentioning can be labelled `skip-changelog`.
+touching nothing but `tests/` or this file is not checked for one, and any
+other with nothing worth mentioning can be labelled `skip-changelog`.
 
 ## Development setup
 
