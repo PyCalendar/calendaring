@@ -47,6 +47,7 @@ from ..errors import (
     BackendError,
     CalendaringError,
     ConflictError,
+    ListingLimitError,
     LossyWriteError,
     LossyWriteWarning,
     NotFoundError,
@@ -773,8 +774,8 @@ class AsyncConformance:
             assert support is Support.LOSSY, f"{feature} is declared {support.value} but the write is lossy"
             return
         read = await collection.reload(stored)
-        if support is not Support.LOSSY:
-            assert property_lines(read.component, name) == property_lines(item.component, name)
+        if support is not Support.LOSSY:  # stored as verify sees it: a parameter the server adds loses nothing
+            assert [d for d in differences(item.icalendar, read.icalendar) if d.property == name] == []
 
     @pytest.mark.parametrize("feature", list(VALUE_SAMPLES))
     async def test_values_map_as_declared(self, collection: AsyncCollection, feature: Feature) -> None:
@@ -921,6 +922,14 @@ class AsyncConformance:
     async def test_listings_are_not_cut_at_a_page(self, collection: AsyncCollection) -> None:
         kind = next(k for k in KINDS if holds(collection, k))
         seeded = await self.seed(collection, [minimal(kind, f"paged {n}") for n in range(self.page_size_hint)])
+        try:
+            await self._listings_are_complete(collection, seeded)
+        except ListingLimitError:
+            # Declared: the server cuts a long listing, and says so (Stalwart, at its WebDav.maxResults)
+            if level(collection, Feature.LISTING_COMPLETE) is not Support.UNSUPPORTED:
+                raise
+
+    async def _listings_are_complete(self, collection: AsyncCollection, seeded: list[AsyncItem]) -> None:
         mine = {nid(i) for i in seeded}
         assert {nid(i) for i in stored_by(await collection.search(), seeded)} == mine
         assert {nid(i) async for i in collection.iter_search() if i.native_id in mine} == mine

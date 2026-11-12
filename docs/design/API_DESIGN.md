@@ -1218,7 +1218,11 @@ from both is dropped) are enough for the generic layer to report the losses
 itself, so a backend whose mapping is that simple writes no mapper. A
 `LOSSY` entry without `values` is allowed, for a backend with mapping rules
 of its own; the conformance suite can then check only that each value is
-either stored or refused before any I/O.
+either stored or refused before any I/O. A property kept only beside
+another is `LOSSY` with `requires`, the properties it needs: Zimbra keeps a
+task's `DTSTART` only where it has a `DUE`, so `task.start` there is
+`{"level": "lossy", "requires": ["DUE"]}`, and the generic layer reports a
+`DTSTART` without a `DUE` as lost.
 
 `supports()` counts `UNKNOWN` as not supported: it is the view for a caller
 deciding whether to rely on a feature, and nothing promises an unprobed one
@@ -1236,6 +1240,7 @@ initial set:
 | `collection.set-name` | `set_name()` |
 | `collection.mixed` | one collection holds several component kinds; `UNSUPPORTED` where each holds one (CCS, a task tracker), and `create_collection()` then makes one for the first kind asked, in sorted order, of those the backend holds |
 | `search.server-side`, `search.time-range`, `search.text` | how much the server filters; never affects results ([§4 Search](#4-search)) |
+| `listing.complete` | a listing (`search()`, `iter_search()`, the listing shorthands, `changes()`) returns every stored object, however many; `UNSUPPORTED` where the server cuts a long one at a limit of its own: the listing then raises `ListingLimitError` where the server says so with a 507 (Stalwart, at its `WebDav.maxResults`, 2000 by default), and is short where it does not |
 | `changes` | `changes()`: `FULL` with a native token, `EMULATED` by listing |
 | `changes.known` | `changes(known=...)` fetches only what changed: `FULL` where etags can be listed without content (CalDAV, vdir), `EMULATED` where everything is read and compared (JMAP, single `.ics` file, feed, Gitea) |
 | `write.wire` | `add(wire=...)`, `save(wire=...)`: given bytes are sent as they are; `FULL` on vdir, and on CalDAV through caldav's `save(raw_data=...)` (caldav 3.6, [caldav #763](https://github.com/python-caldav/caldav/issues/763)); `UNSUPPORTED` elsewhere |
@@ -1244,6 +1249,7 @@ initial set:
 | `identity.client-native-id` | `add(native_id=...)`: the caller may name the stored object (CalDAV href, vdir file name) |
 | `properties.passthrough` | unknown properties and components survive a round trip |
 | `recurrence`, `recurrence.edit-this-and-future` | stores a recurrence set: `RRULE`, `RDATE`, `EXDATE` and the overrides (`RECURRENCE-ID`); `UNSUPPORTED` drops all four, overrides included; [§3.7 Recurrence](#37-recurrence) |
+| `recurrence.rdate` | an event's `RDATE` survives where `recurrence` stores one; `UNSUPPORTED` drops it, and the overrides of the occurrences only it gives, the `RRULE` kept (Zimbra) |
 | `recurrence.edit-occurrence` | `save(occurrence)` merges it into the stored object ([§3.7](#37-recurrence)); `UNSUPPORTED` where the merge is not available yet (Q3) |
 | `task.complete-recurring` | `complete()` on a recurring task or one occurrence of it ([§3.7](#37-recurrence)) |
 | `task.uncomplete` | `uncomplete()` makes a completed task pending again; `UNSUPPORTED` where the server keeps it completed (GMX) |
@@ -1252,8 +1258,9 @@ initial set:
 | `task.start`, `task.due`, `task.completed`, `task.planned`, `task.estimate` | |
 | `task.relations.parent`, `task.relations.depends-on` | |
 | `categories`, `attendees` | for every component; on a task, attendees are its assignees |
-| `alarms` | `VALARM` components survive; `UNSUPPORTED` drops them |
+| `alarms` | `VALARM` components survive; `UNSUPPORTED` drops them; `LOSSY` sends them as they are, to come back rewritten, which `verify` lets pass (Ox makes a task's alarm trigger absolute and replaces its description) |
 | `timezones` | a time with a `TZID` keeps it (with its `VTIMEZONE`), a floating time stays floating; `LOSSY` stores both in UTC, a floating time read as local time ([§4](#4-search)) |
+| `timezones.floating` | a floating time stays floating, whatever `timezones` says of a time with a `TZID`; `LOSSY` stores it in UTC, read as local time (Zimbra and SOGo keep a `TZID` but not a floating time) |
 | `dates` | a `DATE` value stays a date; `LOSSY` stores midnight UTC |
 | `time-log` | the time log of a task or event ("Time tracking" in [§3.4](#34-task)); `LOSSY` with `details["lost"]`, or `details["total-only"]` |
 
@@ -1326,6 +1333,8 @@ Three cases, matching the roadmap's "raise, degrade, or emulate":
       property: str                     # e.g. "PRIORITY", "STATUS", "RELATED-TO"
       sent: object                      # the value in the item
       stored: object | None             # what the backend will store instead; None if dropped
+      note: str | None = None           # how the server changes it, where the backend cannot say
+                                        # what it stores (Ox rewrites a task's alarm): stored is sent
 
   class LossPolicy(Protocol):
       def __call__(self, losses: Sequence[Loss], item: Item) -> None: ...
@@ -1359,8 +1368,10 @@ property that was sent, after normalisation, except those the mapper had
 already reported as not storable (a lossy write, above), and skips what
 servers legitimately change: `DTSTAMP`, `SEQUENCE`, `LAST-MODIFIED`, property
 and parameter order, a parameter spelt out at its RFC 5545 default
-(`PARTSTAT=NEEDS-ACTION`, `RSVP=FALSE`, ...), and the identity a backend
-assigns (`uid`, `native_id`, `etag`;
+(`PARTSTAT=NEEDS-ACTION`, `RSVP=FALSE`, ...), a parameter the server
+adds (SOGo's `RSVP=TRUE`, Ox's `EMAIL=`: that loses nothing), an
+attendee it adds (Ox adds the organizer, as a scheduling server does),
+and the identity a backend assigns (`uid`, `native_id`, `etag`;
 [§3.2 Identity](#32-identity)). A difference raises `VerificationError`
 listing what the server dropped or changed. It is not a `LossyWriteError`:
 that one means nothing was sent, while a `VerificationError` means the
@@ -1389,7 +1400,8 @@ CalendaringError
 ├── RateLimitError                # carries .retry_after: float | None
 ├── VerificationError             # verify=True: written, but stored differently; carries .differences
 └── BackendError                  # anything else from the backend or transport
-    └── TransportError            # network, TLS, timeout
+    ├── TransportError            # network, TLS, timeout
+    └── ListingLimitError         # the server cut a listing at a limit of its own; nothing of it is returned
 
 CalendaringWarning
 └── LossyWriteWarning
@@ -1434,6 +1446,13 @@ CalendaringWarning
   it; a caller that can live with the gap takes `.results`.  The listing
   primitives return a `BrokenObject` in place of a `StoredObject` rather
   than raising, so the backend decides per object.
+- **A cut listing is not a partial result.** `ListingLimitError` is a
+  `BackendError`, not a `PartialResultError`: the server answered a 507 for
+  the collection, and caldav keeps none of what came before it, so there
+  is no `.results` to hand on and no `.broken` to name.  Where the
+  backend declares `listing.complete` unsupported, a caller expecting
+  more objects than the server's limit narrows the search itself, e.g. by
+  time range.
 - Fan-out ([§2.1 Workspace](#21-workspace)) does not raise; `MultiResult.raise_for_errors()` raises an `ExceptionGroup` of these.  `Workspace.search()` keeps a `PartialResultError`'s `.results` among the items, and the error among the errors.
 
 caldav's errors map one to one where they overlap:
@@ -1442,8 +1461,9 @@ caldav's errors map one to one where they overlap:
 `DAVError` carrying the `DAV:valid-sync-token` precondition, any 412, and a
 500 from a server flagged as above → `SyncTokenError`;
 `AuthorizationError` → `AuthenticationError` or `AuthorizationError` by
-status code, `RateLimitError` → `RateLimitError`, other `DAVError` →
-`BackendError`.
+status code, `RateLimitError` → `RateLimitError`, a 507 in a listing (inside
+the multistatus, or for the whole `REPORT` or `PROPFIND`) → `ListingLimitError`,
+other `DAVError` → `BackendError`.
 
 ---
 

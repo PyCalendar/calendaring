@@ -51,7 +51,23 @@ FROM_SERVER = {
     Feature.TASK_RELATIONS_PARENT: "save-load.icalendar.related-to",
     Feature.TASK_RELATIONS_DEPENDS_ON: "save-load.icalendar.related-to",
     Feature.TIMEZONES: "save-load.event.timezone",
+    Feature.TIMEZONES_FLOATING: "save-load.event.floating",
+    Feature.RECURRENCE_RDATE: "save-load.event.recurrences.rdate",
     Feature.TASK_UNCOMPLETE: "save-load.todo.uncomplete",
+}
+
+# Feature -> the caldav feature saying a task keeps the property only beside others, those, and a note.
+REQUIRES_FROM_SERVER = {
+    Feature.TASK_START: (
+        "save-load.todo.dtstart-without-due",
+        ["DUE"],
+        "the server drops the DTSTART of a task without a DUE",  # Zimbra
+    ),
+    Feature.TASK_COMPLETED: (
+        "save-load.todo.completed-without-status",
+        ["STATUS"],
+        "the server drops the COMPLETED of a task without a STATUS",  # Ox
+    ),
 }
 
 # Feature -> the caldav feature probed on a task.  A level is the collection's, not a component's, so
@@ -109,6 +125,10 @@ def _level(features: Any, name: str) -> Support:
     return LEVELS.get(str(features.is_supported(name, str)), X)
 
 
+# Where the server may cut a listing short (Stalwart: WebDav.maxResults, with a 507).
+LISTING_LIMITS = ("search.limit", "propfind.limit", "multiget.limit")
+
+
 # What the server must store, or honour, as sent: FULL on a hinted server, UNKNOWN on another.
 STORED = frozenset(
     {
@@ -140,6 +160,16 @@ def _table(features: Any) -> dict[Feature, Any]:
         table.update(dict.fromkeys(STORED, X))
     for feature, name in FROM_SERVER.items():
         table[feature] = _level(features, name)
+    limits = {_level(features, name) for name in LISTING_LIMITS}
+    table[Feature.LISTING_COMPLETE] = (
+        {"level": U, "note": "the server cuts a long listing at a limit of its own"}
+        if U in limits
+        else X
+        if X in limits
+        else F
+    )
+    if table[Feature.TIMEZONES_FLOATING] is U:  # stored, in UTC: Zimbra and SOGo
+        table[Feature.TIMEZONES_FLOATING] = {"level": L, "note": "a floating time is stored in UTC"}
     if table[Feature.CREATE_COLLECTION] is F:
         notes = []
         if _level(features, "create-calendar.with-supported-component-types") is U:
@@ -152,7 +182,8 @@ def _table(features: Any) -> dict[Feature, Any]:
                 notes.append("made for one component only, the first in sorted order")
         if notes:
             table[Feature.CREATE_COLLECTION] = {"level": L, "note": "; ".join(notes)}
-    if _level(features, "save.if-none-match") is U:  # the server overwrites a name already taken
+    # The server overwrites a name already taken, or refuses it otherwise than with 412 (Bedework: 500).
+    if _level(features, "save.if-none-match") is U:
         # caldav then GETs the name before the PUT where a duplicate UID is refused and names are kept (SOGo),
         # and otherwise searches by UID, which leaves the name unguarded
         if str(features.is_supported("save.no-uid-conflict", str)) in {"full", "quirk", "ungraceful"} and (
@@ -261,6 +292,18 @@ def backend_capabilities(features: Any) -> Capabilities:
     return Capabilities({f: v for f, v in _table(features).items() if f in BACKEND_FEATURES})
 
 
+def _alarm(features: Any) -> Any:
+    """What a task's VALARM becomes: dropped, or rewritten (Ox: an absolute trigger and its own description)."""
+    level = _level(features, "save-load.todo.alarm")
+    if level is not U:
+        return None
+    hint = features.is_supported("save-load.todo.alarm", dict)
+    if hint.get("support") != "broken":
+        return U
+    note = "the server rewrites a task's alarm"
+    return {"level": L, "note": f"{note}: {hint['behaviour']}" if hint.get("behaviour") else note}
+
+
 def collection_capabilities(features: Any, components: frozenset[Component]) -> Capabilities:
     """The server's table, narrowed to what the calendar says it holds."""
     table = {f: v for f, v in _table(features).items() if f not in BACKEND_FEATURES}
@@ -289,14 +332,24 @@ def collection_capabilities(features: Any, components: frozenset[Component]) -> 
             "lost": ["users"],
             "note": "the server refuses an event with a PARTICIPANT, which names who did the work",
         }
+    if Component.EVENT not in components and _level(features, "save-load.event.floating") is U:
+        # Probed on events, and SOGo keeps a task's floating times: a task list is not known to lose them
+        table[Feature.TIMEZONES_FLOATING] = {"level": X, "note": "floating times are probed on events only"}
+    if Component.EVENT not in components and _level(features, "save-load.event.recurrences.rdate") is U:
+        table[Feature.RECURRENCE_RDATE] = {"level": X, "note": "RDATE is probed on events only"}
     if Component.TASK in components:
         lowered = {**TASK_ONLY_FROM_SERVER, **(TASK_FROM_SERVER if Component.EVENT not in components else {})}
         for feature, name in lowered.items():
             if _level(features, name) is U:
                 table[feature] = U
+        if Component.EVENT not in components and (alarm := _alarm(features)) is not None:
+            table[Feature.ALARMS] = alarm
         for feature in VALUES_FROM_SERVER:  # Ox keeps priorities 1, 5 and 9; Zimbra refuses CANCELLED
             if (declared := _values(features, feature)) is not None:
                 table[feature] = declared
+        for feature, (name, needed, note) in REQUIRES_FROM_SERVER.items():
+            if _level(features, name) is U:
+                table[feature] = {"level": L, "requires": needed, "note": note}
     stable_url = features.is_supported("save-load.stable-url", dict) if _hinted(features) else {}
     if stable_url.get("forces_uid_ics"):
         table[Feature.IDENTITY_CLIENT_NATIVE_ID] = {"level": U, "note": "the server renames every object <uid>.ics"}

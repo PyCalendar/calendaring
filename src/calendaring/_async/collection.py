@@ -25,7 +25,7 @@ import icalendar
 import recurring_ical_events
 from icalendar_searcher import Searcher
 
-from .._mapping import Change, differences, plan_calendar_losses, plan_losses
+from .._mapping import NOT_VERIFIED, Change, differences, plan_calendar_losses, plan_losses, undeclared
 from ..capabilities import BACKEND_FEATURES, COMPONENT_FEATURE, Capabilities, Feature, Support
 from ..errors import (
     AlreadyExistsError,
@@ -91,6 +91,14 @@ def _occurrence_now(calendar: icalendar.Calendar, item: Item) -> icalendar.Compo
         if component.get("RECURRENCE-ID") == wanted:
             return component
     return None
+
+
+def _unstamped(component: icalendar.Component) -> icalendar.Component:
+    """``component`` without what a server rewrites in every component of an object it stores (Ox)."""
+    out = copy.deepcopy(component)
+    for name in NOT_VERIFIED:
+        out.pop(name, None)
+    return out
 
 
 def _occurs_at(item: Item) -> datetime:
@@ -431,7 +439,7 @@ class AsyncCollection(ABC):
     async def _check(self, sent: icalendar.Calendar, result: AsyncItem) -> None:
         assert result.native_id is not None
         stored = await self._fetch(result.native_id)
-        found = differences(sent, stored.calendar)
+        found = undeclared(differences(sent, stored.calendar), self.capabilities)
         if found:
             raise VerificationError(found)
 
@@ -819,7 +827,8 @@ class AsyncCollection(ABC):
         Siblings share the stored object's etag, so a stale etag is not a
         conflict by itself: only a change to this occurrence on the server is.
         It is found by comparing the stored occurrence with the item as the
-        caller holds it, so once the etag moved, a local edit before
+        caller holds it, leaving out what verify never compares (DTSTAMP, SEQUENCE,
+        LAST-MODIFIED, UID), so once the etag moved, a local edit before
         ``delete()`` also counts as one; with the etag unchanged nothing
         changed on the server, and a local edit is deleted with the rest.
         An occurrence already gone is ``NotFoundError``.
@@ -830,7 +839,7 @@ class AsyncCollection(ABC):
             now = _occurrence_now(stored.calendar, item)
             if now is None:
                 raise NotFoundError(f"the occurrence {item.component.decoded('RECURRENCE-ID')} is gone")
-            if not overwrite and now != item.component:
+            if not overwrite and _unstamped(now) != _unstamped(item.component):
                 raise ConflictError(
                     f"the occurrence {item.component.decoded('RECURRENCE-ID')} changed since it was read"
                 )

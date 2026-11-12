@@ -38,6 +38,7 @@ from .errors import (
     BackendError,
     CalendaringError,
     ConflictError,
+    ListingLimitError,
     NotFoundError,
     RateLimitError,
     SyncTokenError,
@@ -109,6 +110,9 @@ def _translate(exc: dav_error.DAVError) -> CalendaringError:
         return ConflictError(message)
     if isinstance(exc, dav_error.AuthorizationError):
         return (AuthenticationError if exc.status == 401 else AuthorizationError)(message)
+    # A 507 inside a multistatus, or for a whole REPORT or PROPFIND: a listing the server cut.  A PUT's is a full disk.
+    if isinstance(exc, (dav_error.ResponseError, dav_error.ReportError, dav_error.PropfindError)) and exc.status == 507:
+        return ListingLimitError(f"the server answered a listing with 507 Insufficient Storage: {message}")
     if isinstance(exc, dav_error.RateLimitError):
         return RateLimitError(message, retry_after=exc.retry_after_seconds)
     return BackendError(message)

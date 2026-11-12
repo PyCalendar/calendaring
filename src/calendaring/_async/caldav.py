@@ -86,6 +86,8 @@ class AsyncCalDAVCollection(AsyncCollection):
         # raw_data is what the server sent; data is what caldav made of it, which is what gets parsed.
         data = obj.data
         parsed = _parse(data.encode() if isinstance(data, str) else bytes(data))
+        # CCS drops a VTIMEZONE, which RFC 5545 section 3.2.19 requires for each TZID; zoneinfo has it.
+        parsed.add_missing_timezones()
         return StoredObject(_name_of(obj.url), obj.etag, parsed, obj.raw_data, obj)
 
     def _listed(self, obj: Any) -> StoredObject | BrokenObject:

@@ -45,6 +45,7 @@ class Feature(StrEnum):
     SEARCH_SERVER_SIDE = "search.server-side"
     SEARCH_TIME_RANGE = "search.time-range"
     SEARCH_TEXT = "search.text"
+    LISTING_COMPLETE = "listing.complete"
     CHANGES = "changes"
     CHANGES_KNOWN = "changes.known"
     WRITE_WIRE = "write.wire"
@@ -54,6 +55,7 @@ class Feature(StrEnum):
     IDENTITY_CLIENT_NATIVE_ID = "identity.client-native-id"
     PROPERTIES_PASSTHROUGH = "properties.passthrough"
     RECURRENCE = "recurrence"
+    RECURRENCE_RDATE = "recurrence.rdate"
     RECURRENCE_EDIT_OCCURRENCE = "recurrence.edit-occurrence"
     RECURRENCE_EDIT_THIS_AND_FUTURE = "recurrence.edit-this-and-future"
     MOVE = "move"
@@ -73,6 +75,7 @@ class Feature(StrEnum):
     ATTENDEES = "attendees"
     ALARMS = "alarms"
     TIMEZONES = "timezones"
+    TIMEZONES_FLOATING = "timezones.floating"
     DATES = "dates"
     TIME_LOG = "time-log"
 

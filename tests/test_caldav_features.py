@@ -88,6 +88,80 @@ def test_time_zones_follow_the_servers_hint() -> None:
     assert collection_capabilities(server, ALL).level(Feature.TIMEZONES) is Support.UNSUPPORTED
 
 
+def test_floating_times_follow_the_servers_hint() -> None:
+    server = features({"save-load": {"support": "full"}, "save-load.event.floating": {"support": "unsupported"}})
+    table = collection_capabilities(server, ALL)
+    assert table.level(Feature.TIMEZONES_FLOATING) is Support.LOSSY
+    assert table.level(Feature.TIMEZONES) is Support.FULL, "a TZID is kept"
+    assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.TIMEZONES_FLOATING) is Support.FULL
+    # The hint is probed on events: SOGo keeps a task's floating times, so a task list is not told otherwise
+    tasks = collection_capabilities(server, frozenset({Component.TASK}))
+    assert tasks.level(Feature.TIMEZONES_FLOATING) is Support.UNKNOWN
+
+
+@pytest.mark.parametrize("hint", ["search.limit", "propfind.limit", "multiget.limit"])
+def test_a_listing_limit_makes_listings_incomplete(hint: str) -> None:
+    """Stalwart cuts each of the three at its WebDav.maxResults, with a 507."""
+    server = features({"save-load": {"support": "full"}, hint: {"support": "unsupported"}})
+    assert collection_capabilities(server, ALL).level(Feature.LISTING_COMPLETE) is Support.UNSUPPORTED
+    assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.LISTING_COMPLETE) is Support.FULL
+
+
+@needs_hint("save-load.event.recurrences.rdate")
+def test_rdates_follow_the_servers_hint() -> None:
+    """Zimbra drops every RDATE; probed on events, so a task list is not told so."""
+    server = features(
+        {"save-load": {"support": "full"}, "save-load.event.recurrences.rdate": {"support": "unsupported"}}
+    )
+    assert collection_capabilities(server, ALL).level(Feature.RECURRENCE_RDATE) is Support.UNSUPPORTED
+    assert collection_capabilities(server, ALL).level(Feature.RECURRENCE) is Support.FULL
+    tasks = collection_capabilities(server, frozenset({Component.TASK}))
+    assert tasks.level(Feature.RECURRENCE_RDATE) is Support.UNKNOWN
+    assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.RECURRENCE_RDATE) is Support.FULL
+
+
+@needs_hint("save-load.todo.dtstart-without-due")
+def test_a_task_start_kept_only_with_a_due() -> None:
+    server = features(
+        {"save-load": {"support": "full"}, "save-load.todo.dtstart-without-due": {"support": "unsupported"}}
+    )
+    table = collection_capabilities(server, frozenset({Component.TASK}))
+    assert table.level(Feature.TASK_START) is Support.LOSSY
+    assert table.details(Feature.TASK_START)["requires"] == ["DUE"]
+    assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.TASK_START) is Support.FULL
+
+
+def test_a_completed_kept_only_with_a_status() -> None:
+    """Ox drops COMPLETED from a task without a STATUS."""
+    server = features(
+        {"save-load": {"support": "full"}, "save-load.todo.completed-without-status": {"support": "unsupported"}}
+    )
+    table = collection_capabilities(server, frozenset({Component.TASK}))
+    assert table.level(Feature.TASK_COMPLETED) is Support.LOSSY
+    assert table.details(Feature.TASK_COMPLETED)["requires"] == ["STATUS"]
+    assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.TASK_COMPLETED) is Support.FULL
+
+
+@needs_hint("save-load.todo.alarm")
+def test_a_task_alarm_rewritten_is_lossy() -> None:
+    """Ox makes a task's alarm trigger absolute and replaces its description; an event's it keeps."""
+    behaviour = "the alarm's TRIGGER -PT15M is stored as VALUE=DATE-TIME:20270120T114500Z"
+    server = features(
+        {"save-load": {"support": "full"}, "save-load.todo.alarm": {"support": "broken", "behaviour": behaviour}}
+    )
+    tasks = collection_capabilities(server, frozenset({Component.TASK}))
+    assert tasks.level(Feature.ALARMS) is Support.LOSSY
+    assert behaviour in (tasks[Feature.ALARMS].note or "")
+    both = collection_capabilities(server, frozenset({Component.TASK, Component.EVENT}))
+    assert both.level(Feature.ALARMS) is Support.FULL
+
+
+@needs_hint("save-load.todo.alarm")
+def test_a_task_alarm_dropped_is_unsupported() -> None:
+    server = features({"save-load": {"support": "full"}, "save-load.todo.alarm": {"support": "unsupported"}})
+    assert collection_capabilities(server, frozenset({Component.TASK})).level(Feature.ALARMS) is Support.UNSUPPORTED
+
+
 def test_a_calendar_without_a_component_cannot_hold_it() -> None:
     table = collection_capabilities(hinted(save_load="full"), frozenset({Component.TASK}))
     assert table.level(Feature.COMPONENT_TASK) is Support.FULL
@@ -368,6 +442,11 @@ def test_a_name_is_checked_before_the_put_where_the_server_ignores_if_none_match
     assert (
         collection_capabilities(hinted(save_load="full"), ALL).level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.FULL
     )
+    # Bedework refuses a taken name with 500, not 412: caldav GETs the name first there too
+    mishandling = features(
+        {"save-load": {"support": "full"}, "save.if-none-match": {"support": "ungraceful"}, **refusing}
+    )
+    assert collection_capabilities(mishandling, ALL).level(Feature.IDENTITY_CLIENT_NATIVE_ID) is Support.EMULATED
     # Zimbra ignores it too, but renames every object: no native id at all
     renaming = features(
         {

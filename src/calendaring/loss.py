@@ -27,6 +27,7 @@ class Loss:
     property: str  # e.g. "PRIORITY", "STATUS", "RELATED-TO"
     sent: object  # the value in the item
     stored: object | None  # what the backend will store instead; None if dropped
+    note: str | None = None  # how the server changes it, where the backend cannot say what it stores: stored is sent
 
 
 class LossPolicy(Protocol):
@@ -38,7 +39,9 @@ def _raise(losses: Sequence[Loss], item: Item) -> None:
 
 
 def _warn(losses: Sequence[Loss], item: Item) -> None:
-    text = ", ".join(f"{loss.property}={loss.sent!r} -> {loss.stored!r}" for loss in losses)
+    text = ", ".join(
+        f"{loss.property}={loss.sent!r} -> {loss.note if loss.note else repr(loss.stored)}" for loss in losses
+    )
     warnings.warn(f"lossy write of {item.uid}: {text}", LossyWriteWarning, stacklevel=2)
 
 

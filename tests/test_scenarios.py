@@ -24,7 +24,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import caldav_server_names, running_caldav_server, wait_out_search_cache
+from conftest import caldav_server_names, running_caldav_server, wait_for_server
 from icalendar_searcher import Searcher
 
 from calendaring import (
@@ -77,7 +77,7 @@ def open_backend(where: str, directory: Path, request: pytest.FixtureRequest) ->
             return Backend.open(str(directory / "calendar.ics"))
     server = running_caldav_server(request, where)
     backend = Backend.open(server.url, kind="caldav", **server.options)
-    wait_out_search_cache(backend, request.getfixturevalue("monkeypatch"))
+    wait_for_server(backend, request.getfixturevalue("monkeypatch"))
     return backend
 
 

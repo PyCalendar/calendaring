@@ -1,0 +1,1 @@
+New capability ``recurrence.rdate``: whether an ``RDATE`` survives where an ``RRULE`` does.  The CalDAV backend declares it unsupported on Zimbra, which drops every ``RDATE``, so the loss policy hears of it instead of the date silently disappearing.
