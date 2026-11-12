@@ -99,6 +99,14 @@ def test_floating_times_follow_the_servers_hint() -> None:
     assert tasks.level(Feature.TIMEZONES_FLOATING) is Support.UNKNOWN
 
 
+@pytest.mark.parametrize("hint", ["search.limit", "propfind.limit", "multiget.limit"])
+def test_a_listing_limit_makes_listings_incomplete(hint: str) -> None:
+    """Stalwart cuts each of the three at its WebDav.maxResults, with a 507."""
+    server = features({"save-load": {"support": "full"}, hint: {"support": "unsupported"}})
+    assert collection_capabilities(server, ALL).level(Feature.LISTING_COMPLETE) is Support.UNSUPPORTED
+    assert collection_capabilities(hinted(save_load="full"), ALL).level(Feature.LISTING_COMPLETE) is Support.FULL
+
+
 @needs_hint("save-load.event.recurrences.rdate")
 def test_rdates_follow_the_servers_hint() -> None:
     """Zimbra drops every RDATE; probed on events, so a task list is not told so."""

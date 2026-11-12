@@ -26,6 +26,7 @@ __all__ = [
     "ConfigurationError",
     "ConflictError",
     "InvalidDataError",
+    "ListingLimitError",
     "LossyWriteError",
     "LossyWriteWarning",
     "NotFoundError",
@@ -196,6 +197,15 @@ class BackendError(CalendaringError):
 
 class TransportError(BackendError):
     """Network, TLS, timeout.  During a write, the outcome is unknown."""
+
+
+class ListingLimitError(BackendError):
+    """The server cut a listing at a limit of its own, and said so with a 507; none of it is returned.
+
+    Where ``listing.complete`` is ``UNSUPPORTED`` (Stalwart, at its
+    ``WebDav.maxResults``).  A server that cuts a listing without a 507 is
+    ``UNSUPPORTED`` too, and its listing comes back short instead.
+    """
 
 
 class CalendaringWarning(UserWarning):

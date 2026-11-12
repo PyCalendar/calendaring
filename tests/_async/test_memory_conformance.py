@@ -36,6 +36,7 @@ from calendaring import (
     Component,
     Feature,
     Item,
+    ListingLimitError,
     NotFoundError,
     Support,
     SyncToken,
@@ -399,6 +400,29 @@ class FirstPageOnly(AsyncMemoryCollection):
         return {o.native_id: o.etag for o in self._page()}
 
 
+class CutsWithAnError(FirstPageOnly):
+    """Stalwart's way: a listing longer than the server's limit fails, with nothing of it returned."""
+
+    def _page(self) -> list[MemoryObject]:
+        if len(self.store.objects) > 50:
+            raise ListingLimitError("the server cut the listing at 50")
+        return super()._page()
+
+
+class DeclaresItsLimit(CutsWithAnError):
+    def __init__(self, backend: AsyncMemoryBackend, store: MemoryCalendar) -> None:
+        super().__init__(backend, store)
+        self.capabilities = self.capabilities.updated({Feature.LISTING_COMPLETE: Support.UNSUPPORTED})
+
+
+class DeclaresAndCutsSilently(FirstPageOnly):
+    """Declares the limit, but hands out the first page as if it were all."""
+
+    def __init__(self, backend: AsyncMemoryBackend, store: MemoryCalendar) -> None:
+        super().__init__(backend, store)
+        self.capabilities = self.capabilities.updated({Feature.LISTING_COMPLETE: Support.UNSUPPORTED})
+
+
 class MatchesUidSubstrings(AsyncMemoryCollection):
     """Looks a UID up with a server text-match, newest first."""
 
@@ -630,6 +654,8 @@ ASSERTS = (AssertionError, pytest.fail.Exception)
 
 CAUGHT: list[tuple[type[AsyncMemoryCollection], str, dict[str, Any], Any]] = [
     (FirstPageOnly, "test_listings_are_not_cut_at_a_page", {}, ASSERTS),
+    (CutsWithAnError, "test_listings_are_not_cut_at_a_page", {}, ListingLimitError),
+    (DeclaresAndCutsSilently, "test_listings_are_not_cut_at_a_page", {}, ASSERTS),
     (MatchesUidSubstrings, "test_get_finds_the_exact_uid", {}, ASSERTS),
     (SearchesTheAccount, "test_get_finds_the_exact_uid", {}, ASSERTS),
     (ReplacesEventUids, "test_get_finds_the_exact_uid", {}, ASSERTS),
@@ -695,3 +721,13 @@ async def test_the_suite_catches_a_collection_wider_than_its_backend() -> None:
     backend.capabilities = backend.capabilities.updated({Feature.WRITE: Support.UNSUPPORTED})
     with pytest.raises(AssertionError):
         await TestFullProfile().test_collection_never_widens_backend(backend, await backend.collection("default"))
+
+
+async def test_the_suite_accepts_a_declared_listing_limit() -> None:
+    class Backend(AsyncMemoryBackend):
+        collection_class = DeclaresItsLimit
+
+    suite = TestFullProfile()
+    suite._made, suite._borrowed = [], []
+    backend = Backend(profile=FULL)
+    await suite.test_listings_are_not_cut_at_a_page(await suite.open_collection(backend))

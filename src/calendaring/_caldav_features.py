@@ -125,6 +125,10 @@ def _level(features: Any, name: str) -> Support:
     return LEVELS.get(str(features.is_supported(name, str)), X)
 
 
+# Where the server may cut a listing short (Stalwart: WebDav.maxResults, with a 507).
+LISTING_LIMITS = ("search.limit", "propfind.limit", "multiget.limit")
+
+
 # What the server must store, or honour, as sent: FULL on a hinted server, UNKNOWN on another.
 STORED = frozenset(
     {
@@ -156,6 +160,14 @@ def _table(features: Any) -> dict[Feature, Any]:
         table.update(dict.fromkeys(STORED, X))
     for feature, name in FROM_SERVER.items():
         table[feature] = _level(features, name)
+    limits = {_level(features, name) for name in LISTING_LIMITS}
+    table[Feature.LISTING_COMPLETE] = (
+        {"level": U, "note": "the server cuts a long listing at a limit of its own"}
+        if U in limits
+        else X
+        if X in limits
+        else F
+    )
     if table[Feature.TIMEZONES_FLOATING] is U:  # stored, in UTC: Zimbra and SOGo
         table[Feature.TIMEZONES_FLOATING] = {"level": L, "note": "a floating time is stored in UTC"}
     if table[Feature.CREATE_COLLECTION] is F:

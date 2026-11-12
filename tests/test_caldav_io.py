@@ -56,6 +56,22 @@ def test_a_401_is_authentication_and_a_403_authorization() -> None:
     assert type(_translate(dav_error.AuthorizationError(url="x", status=403))) is AuthorizationError
 
 
+def test_a_507_in_a_listing_is_a_cut_listing() -> None:
+    """Stalwart lists up to its WebDav.maxResults and adds a 507 for the collection;
+    caldav's search.limit hint names a 507 for the whole query too."""
+    from caldav.lib import error as dav_error
+
+    from calendaring._caldav_io import _translate
+    from calendaring.errors import BackendError, ListingLimitError
+
+    cut = dav_error.ResponseError("HTTP/1.1 507 Insufficient Storage", status=507)
+    assert type(_translate(cut)) is ListingLimitError
+    for whole in (dav_error.ReportError(url="x", status=507), dav_error.PropfindError(url="x", status=507)):
+        assert type(_translate(whole)) is ListingLimitError, "a 507 for the whole query"
+    assert type(_translate(dav_error.ResponseError("HTTP/1.1 500 X", status=500))) is BackendError
+    assert type(_translate(dav_error.PutError(url="x", status=507))) is BackendError, "a full disk, not a listing"
+
+
 def test_a_refused_create_says_what_was_taken() -> None:
     from caldav.lib import error as dav_error
 

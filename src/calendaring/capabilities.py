@@ -45,6 +45,7 @@ class Feature(StrEnum):
     SEARCH_SERVER_SIDE = "search.server-side"
     SEARCH_TIME_RANGE = "search.time-range"
     SEARCH_TEXT = "search.text"
+    LISTING_COMPLETE = "listing.complete"
     CHANGES = "changes"
     CHANGES_KNOWN = "changes.known"
     WRITE_WIRE = "write.wire"
