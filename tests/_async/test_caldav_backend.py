@@ -221,6 +221,7 @@ async def test_a_dropped_vtimezone_is_put_back_on_read(
     assert read.wire is not None
     assert b"VTIMEZONE" not in read.wire
     assert [str(tz["TZID"]) for tz in read.icalendar.walk("VTIMEZONE")] == ["Europe/Oslo"]
+    assert isinstance(read.component, icalendar.Todo)
     assert read.component.end == due
 
 
