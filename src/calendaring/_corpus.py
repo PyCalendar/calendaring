@@ -3,8 +3,10 @@
 Each one carries what a backend is tempted to lose: time zones and their
 VTIMEZONE, floating times, dates, alarms, a recurrence set with EXDATE,
 RDATE and an override, escaped, multi-line and non-ASCII text, properties
-with several values, and X- properties with parameters on every component
-type.  A backend may lose only what its declaration says it does.
+with several values, and X- properties with parameters on every item and
+alarm.  Not on the VTIMEZONE: a server may replace it with its own, so verify
+does not compare it, and the round trip checks only that every TZID has one.
+A backend may lose only what its declaration says it does.
 """
 
 from __future__ import annotations
@@ -61,6 +63,7 @@ BEGIN:VALARM
 ACTION:DISPLAY
 DESCRIPTION:Møtet begynner snart
 TRIGGER:-PT15M
+X-CONFORMANCE-ALARM;X-SNOOZE=PT5M:kept
 END:VALARM
 END:VEVENT
 BEGIN:VEVENT
@@ -118,6 +121,7 @@ BEGIN:VALARM
 ACTION:DISPLAY
 DESCRIPTION:Fristen er i morgen
 TRIGGER;RELATED=END:-P1D
+X-CONFORMANCE-ALARM;X-SNOOZE=PT1H:kept
 END:VALARM
 END:VTODO
 END:VCALENDAR

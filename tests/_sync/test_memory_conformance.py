@@ -596,6 +596,18 @@ class DropsOverrides(MemoryCollection):
         return super()._create(calendar, native_id=native_id, wire=None)
 
 
+class DropsNestedXProperties(MemoryCollection):
+    """Keeps X- properties on the items, and drops them from their alarms."""
+
+    def _create(self, calendar: icalendar.Calendar, *, native_id: str | None, wire: bytes | None) -> StoredObject:
+        calendar = copy.deepcopy(calendar)
+        for component in calendar.walk():
+            if component.name == "VALARM":
+                for name in [n for n in component if n.startswith("X-")]:
+                    del component[name]
+        return super()._create(calendar, native_id=native_id, wire=None)
+
+
 class FirstValueOnly(Mangling):
     def mangle(self, component: icalendar.Component) -> None:
         for name in ("CATEGORIES", "ATTENDEE"):
@@ -681,6 +693,13 @@ CAUGHT: list[tuple[type[MemoryCollection], str, dict[str, Any], Any]] = [
     ),
     (DropsOverrides, "test_real_world_objects_round_trip", {"name": "event-series-in-a-time-zone"}, VerificationError),
     (FirstValueOnly, "test_real_world_objects_round_trip", {"name": "task-due-on-a-date"}, VerificationError),
+    (
+        DropsNestedXProperties,
+        "test_real_world_objects_round_trip",
+        {"name": "event-series-in-a-time-zone"},
+        VerificationError,
+    ),
+    (DropsNestedXProperties, "test_real_world_objects_round_trip", {"name": "task-due-on-a-date"}, VerificationError),
     (StartsInRange, "test_search_gives_the_client_side_answer", {"name": "events-in-range"}, ASSERTS),
     (StartsInRange, "test_search_gives_the_client_side_answer", {"name": "tasks-in-range"}, ASSERTS),
     (CompletesNothing, "test_complete_a_recurring_task", {}, ASSERTS),
