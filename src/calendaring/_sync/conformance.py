@@ -354,12 +354,13 @@ class SyncConformance:
     ) -> Collection:
         """A collection to test against: made if the backend may be able to, else the first one listed.
 
-        Where collections can be made but not deleted, the one a previous run
-        left is used again, so a run leaves one collection per name behind.
+        Where collections can be made but not deleted, or ``reuses_collections()``
+        says so, the one a previous test or run left is used again, so a run
+        leaves one collection per name behind.
         """
         if backend.capabilities.level(Feature.CREATE_COLLECTION) is not Support.UNSUPPORTED:
-            deletable = backend.capabilities.level(Feature.DELETE_COLLECTION) is not Support.UNSUPPORTED
-            left = None if deletable else self.left_behind(backend, name)
+            kept = self.keeps_collections(backend)
+            left = self.left_behind(backend, name) if kept else None
             if left is not None:
                 return self.borrow(left)
             try:
@@ -369,7 +370,7 @@ class SyncConformance:
                 if backend.capabilities.level(Feature.CREATE_COLLECTION) is not Support.UNKNOWN:
                     raise
             else:
-                if not deletable:
+                if kept:
                     return self.borrow(made)
                 self._made.append(made)
                 return made
@@ -386,6 +387,19 @@ class SyncConformance:
         URL, say) overrides it.
         """
         return backend.collection(kept.id)
+
+    def reuses_collections(self, backend: Backend) -> bool:
+        """Whether the suite keeps the collections it makes, to use them again, though it could delete them.
+
+        For a backend that limits how many collections may be made in a while
+        (Nextcloud: about 10 an hour), where one per test would fail most of them.
+        """
+        return False
+
+    def keeps_collections(self, backend: Backend) -> bool:
+        """Whether a made collection is kept for later tests; not a hook, override ``reuses_collections()``."""
+        deletable = backend.capabilities.level(Feature.DELETE_COLLECTION) is not Support.UNSUPPORTED
+        return not deletable or self.reuses_collections(backend)
 
     def left_behind(self, backend: Backend, name: str) -> Collection | None:
         """The collection named ``name`` that an earlier test or run left, if any.
@@ -705,7 +719,7 @@ class SyncConformance:
                 collection.get(f"-{suffix}")
         if backend.capabilities.supports(Feature.CREATE_COLLECTION, allow_lossy=True):
             try:
-                other = self.open_collection(backend, "conformance-other", (Component.TASK,))
+                other = self.open_collection(backend, "conformance-other-tasks", (Component.TASK,))
             except UnsupportedError:
                 return  # no task list to be made: Bedework
             if writable(other) and holds(other, Component.TASK):
@@ -1553,7 +1567,8 @@ class SyncConformance:
         if not backend.capabilities.supports(Feature.CREATE_COLLECTION, allow_lossy=True):
             pytest.skip("the backend makes no collections")
         deletable = backend.capabilities.level(Feature.DELETE_COLLECTION) is not Support.UNSUPPORTED
-        if not deletable and self.left_behind(backend, "conformance-events") is not None:
+        kept = self.keeps_collections(backend)
+        if kept and self.left_behind(backend, "conformance-events") is not None:
             return  # the run that left it checked it
         before = [c.id for c in backend.collections()]
         refused: UnsupportedError | None = None
@@ -1566,7 +1581,9 @@ class SyncConformance:
             if deletable:
                 assert [c.id for c in backend.collections()] == before, "a refused collection was left behind"
             return
-        if deletable:
+        if kept:
+            SyncConformance._kept[backend.id, "conformance-events"] = made
+        else:
             self._made.append(made)
         assert Component.EVENT in made.components
 
