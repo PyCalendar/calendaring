@@ -150,6 +150,9 @@ annotated, and do not silence an `unused-coroutine` error.
 5. Add `tests/_async/test_<name>_conformance.py`, with a class that
    subclasses `calendaring.testing.AsyncConformance` and returns the
    backend from `open_backend()`.  The generator writes the sync tests.
+   If the backend limits how many collections may be made in a while,
+   have `reuses_collections()` return `True`: the suite then keeps the
+   collections it makes rather than make one per test.
 
 ## Commit messages
 

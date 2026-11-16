@@ -104,6 +104,41 @@ class TestMinimalProfile(AsyncConformance):
         assert {i.native_id for i in await collection.search()} == before
 
 
+class TestReusedCollections(AsyncConformance):
+    """Where making collections is rate-limited (Nextcloud), the suite keeps the ones it makes and uses them again.
+
+    One backend serves every test of the class, so each test meets the
+    collections the tests before it kept, as on the server.
+    """
+
+    shared: ClassVar[AsyncMemoryBackend | None] = None
+
+    def reuses_collections(self, backend: AsyncBackend) -> bool:
+        return True
+
+    async def open_backend(self) -> AsyncBackend:
+        if TestReusedCollections.shared is None:
+            TestReusedCollections.shared = AsyncMemoryBackend(profile=FULL)
+        return TestReusedCollections.shared
+
+    async def test_a_collection_is_made_once_and_kept(self) -> None:
+        backend = AsyncMemoryBackend(profile=FULL)
+        self._made, self._borrowed = [], []
+        first = await self.open_collection(backend)
+        await first.add_task(summary="the suite's")
+        await self.tidy_up(backend)
+        assert first.id in [c.id for c in await backend.collections()]
+        assert await first.search() == []
+        other = await first.add_task(summary="another client's")
+        self._made, self._borrowed = [], []
+        again = await self.open_collection(backend)
+        assert again.id == first.id
+        await again.add_task(summary="the suite's")
+        await self.tidy_up(backend)
+        assert [i.native_id for i in await again.search()] == [other.native_id]
+        assert [c.name for c in await backend.collections()].count(first.name) == 1
+
+
 class TestFeedProfile(AsyncConformance):
     async def open_backend(self) -> AsyncBackend:
         backend = AsyncMemoryBackend(profile=FEED)
