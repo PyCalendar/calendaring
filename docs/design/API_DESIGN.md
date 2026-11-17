@@ -1105,8 +1105,9 @@ Completing the occurrence is `icalendar` manipulation, which goes to
 [edit-icalendar](https://github.com/pycalendar/edit-icalendar); fetching and
 storing stay here ([§10 Open questions](#10-open-questions), Q3).  Until
 edit-icalendar has it, every backend declares `task.complete-recurring`
-`UNSUPPORTED`, the CalDAV backend included, and `complete()` on a task
-with an `RRULE` raises `UnsupportedError`. The design is discussed in
+`UNSUPPORTED`, the CalDAV backend included, and `complete()` on a
+recurring task (an `RRULE` or `RDATE`) or on an occurrence of one raises
+`UnsupportedError`. The design is discussed in
 [edit-icalendar issue 3](https://github.com/pycalendar/edit-icalendar/issues/3).
 Meanwhile a CalDAV caller can use the escape hatch: read the task
 (`get`, `search` or `reload`, see [§8](#8-the-escape-hatch)), call
@@ -1587,7 +1588,7 @@ Every `Backend`, `Collection` and item has `.native`:
 
 | Backend | `Backend.native` | `Collection.native` | item `.native` |
 |---|---|---|---|
-| CalDAV | `caldav.DAVClient` / `AsyncDAVClient` | `caldav.Calendar` | `caldav.CalendarObjectResource` |
+| CalDAV | `caldav.DAVClient` / `AsyncDAVClient` | `caldav.Calendar` | `caldav.CalendarObjectResource` (`None` on an item a write returned, see below) |
 | files | the root `Path` | the directory or file `Path` | the file `Path` |
 | JMAP | `calendaring_jmap.JMAPClient` / `AsyncJMAPClient` | the calendar id | the JMAP object dict |
 | Gitea | the base URL and an HTTP session | the repository dict from the API | the issue dict from the API |
@@ -1669,8 +1670,8 @@ relatives lookup, and fit in Phase 1 if plann needs them before roadmap
 3.3. Recurring-task completion waits for edit-icalendar
 ([§10 Open questions](#10-open-questions), Q3), which has no code yet.
 The behaviour change in `complete()` is deliberate: completing a whole
-series because the caller forgot a flag is the wrong default. caldav's own docstring says it may
-make the flag mandatory.
+series because the caller forgot a flag is the wrong default. caldav's own
+docstring says it may make the flag mandatory.
 
 ### 9.1 A migration path for plann
 
@@ -1741,7 +1742,8 @@ marked as not blocking; none blocks
    copying it. That means the CalDAV backend keeps caldav's "interval after
    completion" guess for an `RRULE` without `BY*` parts until then: a
    known deviation from [§2.3 Collection](#23-collection), listed in the
-   capability matrix.
+   capability matrix. (Superseded by the 2026-10-23 decision below: the
+   CalDAV backend does not call caldav's code for it.)
    *Agreed with recurring-ical-events' maintainer in the
    [PR 5 review](https://github.com/pycalendar/calendaring/pull/5#discussion_r4237580140),
    2026-10-10*, with this split: the merge itself (inserting or replacing
