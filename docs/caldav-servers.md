@@ -26,13 +26,19 @@ nothing waits for an index that lags behind writes: three stories fail on
 Bedework 3 (an event or task just written is not found yet), and
 purelymail fails most stories that search.
 
-## The conformance tests: a known failure, 2026-11-03
+## The conformance tests (`tests/*/test_caldav_conformance.py`), 2026-11-17
 
-SOGo adds `RSVP=TRUE` and `PARTSTAT` to an ATTENDEE that had none, and Ox
-adds `EMAIL=`.  caldav records this
-(`save-load.icalendar.attendee-params`), but no capability declaration
-can say that a server *adds* parameters: LOSSY only describes a server
-dropping or rewriting what it was sent.  The round trip and `verify`
-therefore report the attendees on these servers as changed, and the
-tests fail.  Whether verification should tolerate added parameters, or
-`attendees` should count as LOSSY there, is undecided.
+One server at a time, with caldav's master branch.  Zimbra, Ox, Cyrus,
+Davical, Davis, Baikal, Nextcloud, Radicale, Xandikos, CCS, Bedework 3
+and Stalwart passed on 2026-11-12.  SOGo waits for caldav's SOGo hints;
+ecloud has not been run to the end.
+
+| Server | Result | Why |
+|---|---|---|
+| Bedework 5 (sync suite only) | pass, 35 skipped | the skips need tasks or journals, which its calendar does not hold.  It stores each ATTENDEE twice, and caldav drops the copy |
+| gmx | pass | |
+| robur | passes on rerun | about one request in 60 hangs for 70 s and is then reset, and some PUTs get a 500; seeding retries a failed write, but a test that reads 120 items still fails some runs, and `--last-failed` passed them all |
+| purelymail | pass | run alone, in 1 h 54 |
+| infomaniak | pass, 2 skipped | its calendar holds no journals.  It stores URL as `URL;VALUE=URI`, which verify took for a change before 2026-11-18 |
+| posteo | pass, 10 skipped | it cannot make calendars, so the 8 tests that need a second one (move, a token from another collection, creating one) skip; and it holds no journals |
+| jeanes | pass | 5 h 09: the account held 469 leftover calendars, each listing one PROPFIND per calendar.  384 were deleted through DSM's web API during the run |

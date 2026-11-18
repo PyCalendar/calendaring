@@ -21,6 +21,7 @@ from typing import Any, TypeVar
 import icalendar
 import recurring_ical_events
 from icalendar.parser import Contentline
+from icalendar.prop import TypesFactory
 
 from .capabilities import Capabilities, Feature, Support
 from .items import X_PLANNED_END, X_PLANNED_START
@@ -348,9 +349,21 @@ def _without_defaults(line: bytes) -> tuple[Any, ...]:
         (key.upper(), tuple(sorted(_zone(str(v)) if key.upper() == "TZID" else str(v) for v in values)))
         for key, raw in params.items()
         for values in [raw if isinstance(raw, list) else [raw]]
-        if not (len(values) == 1 and PARAMETER_DEFAULTS.get(key.upper()) == str(values[0]).upper())
+        if not (len(values) == 1 and _default(name, key) == str(values[0]).upper())
     )
     return name.upper(), tuple(kept), value
+
+
+def _default(name: str, key: str) -> str | None:
+    """A parameter's RFC 5545 default on property ``name``: for VALUE the property's own type (URL's is URI).
+
+    icalendar names a list property's type with a ``-list`` suffix (RDATE's is ``date-time-list``),
+    which no VALUE parameter carries.
+    """
+    if key.upper() == "VALUE":
+        default = TypesFactory.instance().types_map.get(name)
+        return default.upper().removesuffix("-LIST") if default else None
+    return PARAMETER_DEFAULTS.get(key.upper())
 
 
 @functools.cache

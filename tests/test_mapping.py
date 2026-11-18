@@ -165,6 +165,32 @@ def test_a_parameter_added_with_its_default_is_no_difference() -> None:
     assert differences(sent.icalendar, stored_as(sent, defaults)) == []
 
 
+def test_a_value_type_spelled_out_at_its_default_is_no_difference() -> None:
+    """Infomaniak stores URL as URL;VALUE=URI, its default type (RFC 5545 §3.8.4.6); another type is a change."""
+    sent = Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC))
+    sent.component.add("URL", "https://meet.example.com/weekly")
+    text = sent.icalendar.to_ical().decode()
+    line = "URL:https://meet.example.com/weekly"
+    assert line in text
+    as_uri = icalendar.Calendar.from_ical(text.replace(line, "URL;VALUE=URI:https://meet.example.com/weekly"))
+    assert differences(sent.icalendar, as_uri) == []
+    as_text = icalendar.Calendar.from_ical(text.replace(line, "URL;VALUE=TEXT:https://meet.example.com/weekly"))
+    assert [d.property for d in differences(sent.icalendar, as_text)] == ["URL"]
+
+
+def test_a_date_time_type_spelled_out_is_no_difference_but_a_date_is() -> None:
+    """VALUE=DATE-TIME is the default of DTSTART, and of RDATE's list type; VALUE=DATE changes what is read."""
+    sent = Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC))
+    sent.component.add("RDATE", datetime(2026, 11, 10, 9, tzinfo=UTC))
+    text = sent.icalendar.to_ical().decode()
+    for prop in ("DTSTART", "RDATE"):
+        line = next(x for x in text.splitlines() if x.startswith(prop + ":"))
+        spelled = icalendar.Calendar.from_ical(text.replace(line, line.replace(":", ";VALUE=DATE-TIME:", 1)))
+        assert differences(sent.icalendar, spelled) == [], prop
+        as_date = icalendar.Calendar.from_ical(text.replace(line, line.replace(":", ";VALUE=DATE:", 1)))
+        assert prop in [d.property for d in differences(sent.icalendar, as_date)], prop
+
+
 def test_a_parameter_the_server_added_is_no_difference() -> None:
     sent = Event.new(summary="x", start=datetime(2026, 11, 3, 9, tzinfo=UTC))
     sent.component.add("ATTENDEE", "mailto:bob@example.com", parameters={"CN": "Bob"})
