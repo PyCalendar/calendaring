@@ -74,7 +74,6 @@ class CalDAVConformance(AsyncConformance):
         except (NotFoundError, BackendError):
             return False
         return True
-        return seeded
 
 
 class TestCalDAVServers(CalDAVConformance):
