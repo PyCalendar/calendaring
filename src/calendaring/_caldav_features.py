@@ -288,6 +288,11 @@ def multiget_serves_deleted(features: Any) -> bool:
     return _level(features, "multiget.deleted") is U
 
 
+def lists_missing_collections(features: Any) -> bool:
+    """Bedework 5 lists a calendar, display name and component set and all, that answers 404."""
+    return _level(features, "propfind.listed-members-exist") is U
+
+
 def backend_capabilities(features: Any) -> Capabilities:
     return Capabilities({f: v for f, v in _table(features).items() if f in BACKEND_FEATURES})
 

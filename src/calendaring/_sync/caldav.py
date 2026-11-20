@@ -24,6 +24,7 @@ from icalendar_searcher import Searcher
 from .._caldav_features import (
     backend_capabilities,
     collection_capabilities,
+    lists_missing_collections,
     multiget_serves_deleted,
     stored_components,
 )
@@ -272,11 +273,14 @@ class CalDAVBackend(Backend):
         return cls(DAV(url, **options), id=backend_id, loss=loss, verify=verify)
 
     def _wrap(self, calendar: Calendar) -> CalDAVCollection:
+        features = self._dav.client.features
+        # Where the listing names calendars that are not there, a fresh read of each is how they are found.
+        name = self._dav.display_name(calendar, cached=not lists_missing_collections(features))
         listed = frozenset(
             Component(c) for c in self._dav.supported_components(calendar) if c in {k.value for k in Component}
         )
-        components = stored_components(self._dav.client.features, listed)
-        return self.collection_class(self, calendar, name=self._dav.display_name(calendar), components=components)
+        components = stored_components(features, listed)
+        return self.collection_class(self, calendar, name=name, components=components)
 
     def collections(self) -> list[Collection]:
         found: list[Collection] = []
