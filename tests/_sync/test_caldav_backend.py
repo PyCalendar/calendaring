@@ -31,10 +31,13 @@ pytest.importorskip("caldav")
 
 from caldav.collection import Calendar  # noqa: E402
 from caldav.compatibility_hints import FeatureSet  # noqa: E402
+from caldav.elements.cdav import SupportedCalendarComponentSet  # noqa: E402
+from caldav.elements.dav import DisplayName  # noqa: E402
 from caldav.lib.url import URL  # noqa: E402
 
 from calendaring._sync.caldav import _name_of  # noqa: E402
-from calendaring._caldav_io import _resource  # noqa: E402
+from calendaring._caldav_features import lists_missing_collections  # noqa: E402
+from calendaring._caldav_io import _listed_components, _resource  # noqa: E402
 
 
 @pytest.fixture
@@ -90,8 +93,62 @@ def test_a_listed_calendar_that_is_not_there_is_left_out(
     assert len(backend.collections()) == len(real)
 
 
+def test_a_listed_calendar_that_is_not_there_is_left_out_where_the_listing_says_otherwise(
+    collection: Collection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bedework 5 lists its ghost ``tasks/`` with a display name and a component set, all a listing could say."""
+    caldav_collection: Any = collection
+    backend = caldav_collection._backend
+    features = backend._dav.client.features
+    if "propfind.listed-members-exist" not in features.FEATURES:
+        pytest.skip("caldav up to 3.7 has no propfind.listed-members-exist hint")
+    features.set_feature("propfind.listed-members-exist", {"support": "broken"})
+    real = backend._dav.calendars()
+    ghost = Calendar(
+        client=backend._dav.client,
+        url=URL.objectify(caldav_collection.url).join("../ghost/"),
+        props={DisplayName.tag: "tasks", SupportedCalendarComponentSet.tag: ["VTODO"]},
+    )
+    monkeypatch.setattr(backend._dav, "calendars", lambda: _returning([*real, ghost]))
+    assert [c.id for c in backend.collections()] == [_name_of(str(c.url)) for c in real]
+
+
 def _returning(value: Any) -> Any:
     return value
+
+
+def test_listing_collections_costs_the_same_however_many_there_are(
+    collection: Collection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One PROPFIND per calendar took 268 s for 469 calendars on a Synology; the listing alone takes 6 s."""
+    backend: Any = collection._backend
+    if not all(_listed_components(c) for c in backend._dav.calendars()):
+        pytest.skip("the listing kept no component set: caldav up to 3.7 keeps only the display name")
+    if lists_missing_collections(backend._dav.client.features):
+        pytest.skip("where the listing names calendars that are not there, each is asked")
+    client = backend._dav.client
+    request = client.request
+    methods: list[str] = []
+
+    def counted(url: Any, method: str = "GET", *args: Any, **kwargs: Any) -> Any:
+        methods.append(method)
+        return request(url, method, *args, **kwargs)
+
+    monkeypatch.setattr(client, "request", counted)
+    one = backend.collections()
+    one_propfinds, methods[:] = methods.count("PROPFIND"), []
+    assert one_propfinds >= 1  # the counting sees the requests at all
+    monkeypatch.setattr(client, "request", request)
+    other = backend.create_collection("backend-tests-2", components=(Component.TASK,))
+    try:
+        monkeypatch.setattr(client, "request", counted)
+        two = backend.collections()
+        assert len(two) == len(one) + 1
+        assert methods.count("PROPFIND") == one_propfinds
+        assert {c.id: c.components for c in two}[collection.id] == {Component.TASK}
+    finally:
+        monkeypatch.setattr(client, "request", request)
+        other.delete_collection()
 
 
 def test_a_token_is_bearer_auth() -> None:

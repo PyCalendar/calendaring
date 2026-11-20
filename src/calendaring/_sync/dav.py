@@ -15,6 +15,7 @@ from .._caldav_io import (
     SyncResult,
     _returned,
     _etags,
+    _listed_components,
     _raw,
     _resource,
     _strong,
@@ -57,12 +58,18 @@ class DAV:
             _returned(calendar.delete())  # type: ignore[no-untyped-call]  # caldav leaves delete() unannotated
 
     def supported_components(self, calendar: Calendar) -> list[str]:
+        # From the listing if it said, or one PROPFIND per calendar: 268 s for 469 on a Synology.
+        if (listed := _listed_components(calendar)) is not None:
+            return listed
         with translated():
             return [str(c) for c in _returned(calendar.get_supported_components())]
 
-    def display_name(self, calendar: Calendar) -> str | None:
+    def display_name(self, calendar: Calendar, *, cached: bool = True) -> str | None:
+        """The listed name, or with ``cached=False`` a fresh one: ``NotFoundError`` if the calendar is gone."""
         with translated():
-            return _returned(calendar.get_display_name())
+            if cached:
+                return _returned(calendar.get_display_name())
+            return _returned(calendar.get_property(DisplayName(), use_cached=False))
 
     def set_display_name(self, calendar: Calendar, name: str) -> None:
         with translated():

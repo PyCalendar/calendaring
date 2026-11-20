@@ -27,6 +27,7 @@ from caldav.aio import AsyncDAVClient
 from caldav.calendarobjectresource import CalendarObjectResource, Event, Journal, Todo
 from caldav.collection import Calendar
 from caldav.davclient import DAVClient
+from caldav.elements.cdav import SupportedCalendarComponentSet
 from caldav.elements.dav import DisplayName, GetEtag
 from caldav.lib import error as dav_error
 from caldav.lib.url import URL
@@ -68,6 +69,15 @@ ETAG_PROPFIND = (
 )
 
 VALID_SYNC_TOKEN = "{DAV:}valid-sync-token"  # RFC 6578 §3.2
+
+
+def _listed_components(calendar: Calendar) -> list[str] | None:
+    """The component set the calendar listing answered, if caldav kept it (after 3.7): None to ask.
+
+    Read from ``props`` rather than ``get_supported_components(use_cached=True)``, which 3.7 does not take."""
+    listed = calendar.props.get(SupportedCalendarComponentSet.tag)
+    return [str(c) for c in listed] if listed else None
+
 
 # A sync-collection report: hrefs changed, hrefs removed, the new token (None if the server gave
 # none), and whether it is incomplete (truncated beyond what caldav itself follows, RFC 6578 §3.6).
