@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import time as time_module
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
@@ -58,7 +59,7 @@ from calendaring.memory import (
     MemoryStore,
     Profile,
 )
-from calendaring.testing import AsyncConformance
+from calendaring.testing import AsyncConformance, fresh_uid
 from calendaring.timetracking import TimeEntry
 from calendaring.types import StoredObject
 
@@ -100,7 +101,7 @@ class TestMinimalProfile(AsyncConformance):
         self._made, self._borrowed = [], []
         collection = await self.open_collection(backend)
         before = {i.native_id for i in await collection.search()}
-        await collection.add_task(summary="the suite's")
+        await collection.add_task(summary="the suite's", uid=fresh_uid())
         await self.tidy_up(backend)
         assert {i.native_id for i in await collection.search()} == before
 
@@ -339,6 +340,14 @@ class LosesAnswers(AsyncMemoryCollection):
         raise TransportError("read timed out")
 
 
+class SweptMeanwhile(AsyncMemoryCollection):
+    """Another run deletes each item just before this one does."""
+
+    async def delete(self, item: Item | str, *, overwrite: bool = False) -> None:
+        await super().delete(item, overwrite=overwrite)
+        await super().delete(item, overwrite=overwrite)
+
+
 class TestTidyingUp:
     """What the suite leaves behind on a backend that keeps data between tests."""
 
@@ -351,7 +360,7 @@ class TestTidyingUp:
         backend = sharing(MINIMAL)
         suite = self.suite()
         collection = await suite.open_collection(backend)
-        await collection.add_task(summary="the suite's")
+        await collection.add_task(summary="the suite's", uid=fresh_uid())
         [shared] = await sharing(MINIMAL, backend.store).collections()
         await shared.add_task(summary="the user's, from their phone")
         await suite.tidy_up(backend)
@@ -365,7 +374,7 @@ class TestTidyingUp:
         suite = self.suite()
         collection = await suite.open_collection(backend)
         assert await snapshot(collection) == []
-        await collection.add_task(summary="the suite's")
+        await collection.add_task(summary="the suite's", uid=fresh_uid())
         await suite.tidy_up(backend)
         assert list(backend.store.calendars["default"].objects) == [bad]
 
@@ -377,9 +386,51 @@ class TestTidyingUp:
         suite = self.suite()
         collection = await suite.open_collection(backend)
         with pytest.raises(TransportError):
-            await collection.add_task(summary="stored all the same")
+            await collection.add_task(summary="stored all the same", uid=fresh_uid())
         assert await collection.search()
         await suite.tidy_up(backend)
+        assert list(backend.store.calendars["default"].objects) == []
+
+    async def test_a_crashed_runs_leftovers_are_swept(self) -> None:
+        backend = sharing(MINIMAL)
+        crashed = Task.new(
+            summary="a crashed run's", uid=f"x-t{int(time_module.time()) - 2 * 86400}@conformance.invalid"
+        )
+        completion = Task.new(summary="the server's, for it")
+        completion.component.add("RELATED-TO", crashed.uid)
+        live = Task.new(summary="a live run's", uid=fresh_uid())
+        for item in (crashed, completion, live, Task.new(summary="the user's")):
+            backend.store.calendars["default"].put(item.to_ical())
+        suite = self.suite()
+        collection = await suite.open_collection(backend)
+        assert sorted(str(i.component["SUMMARY"]) for i in await collection.search()) == ["a live run's", "the user's"]
+        await suite.tidy_up(backend)
+        assert len(backend.store.calendars["default"].objects) == 2
+
+    async def test_an_older_runs_unstamped_leftover_is_swept(self) -> None:
+        backend = sharing(MINIMAL)
+        for uid in ("corpus-task-0123456789ab@conformance.invalid", f"x-t{'9' * 30}@conformance.invalid"):
+            backend.store.calendars["default"].put(Task.new(summary="before the stamp", uid=uid).to_ical())
+        collection = await self.suite().open_collection(backend)
+        assert await collection.search() == []
+
+    async def test_a_leftover_another_run_swept_first_is_no_error(self) -> None:
+        class Backend(AsyncMemoryBackend):
+            collection_class = SweptMeanwhile
+
+        backend = Backend(profile=MINIMAL)
+        crashed = Task.new(
+            summary="a crashed run's", uid=f"x-t{int(time_module.time()) - 2 * 86400}@conformance.invalid"
+        )
+        backend.store.calendars["default"].put(crashed.to_ical())
+        collection = await self.suite().open_collection(backend)
+        assert await collection.search() == []
+
+    async def test_a_write_without_the_runs_mark_is_refused(self) -> None:
+        backend = sharing(MINIMAL)
+        collection = await self.suite().open_collection(backend)
+        with pytest.raises(pytest.fail.Exception, match="conformance.invalid"):
+            await collection.add_task(summary="no run's mark")
         assert list(backend.store.calendars["default"].objects) == []
 
     async def test_a_borrowed_collection_keeps_its_name(self) -> None:
@@ -395,7 +446,7 @@ class TestTidyingUp:
             backend = sharing(TRACKER, store)
             suite = self.suite()
             collection = await suite.open_collection(backend)
-            await collection.add_task(summary="the suite's")
+            await collection.add_task(summary="the suite's", uid=fresh_uid())
             await suite.test_create_and_delete_collection(backend)
             await suite.tidy_up(backend)
         assert sorted(store.calendars) == ["conformance", "conformance-new", "default"]
