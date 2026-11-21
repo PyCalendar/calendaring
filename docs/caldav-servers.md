@@ -26,16 +26,21 @@ nothing waits for an index that lags behind writes: three stories fail on
 Bedework 3 (an event or task just written is not found yet), and
 purelymail fails most stories that search.
 
-## The conformance tests (`tests/*/test_caldav_conformance.py`), 2026-11-17
+## The conformance tests (`tests/*/test_caldav_conformance.py`), 2026-11-21
 
 One server at a time, with caldav's master branch.  Zimbra, Ox, Cyrus,
 Davical, Davis, Baikal, Nextcloud, Radicale, Xandikos, CCS, Bedework 3
-and Stalwart passed on 2026-11-12.  SOGo waits for caldav's SOGo hints;
-ecloud has not been run to the end.
+and Stalwart passed on 2026-11-12.  ecloud has not been run to the end.
+
+On 2026-11-21 the whole suite ran on all twelve docker servers
+(Baikal, Bedework 3 and 5, CCS, Cyrus, Davical, Davis, Nextcloud, Ox,
+SOGo, Stalwart, Zimbra) and the embedded Xandikos and Radicale at once,
+`-n 12 --dist loadgroup`, with icalendar's main branch: 5297 passed,
+712 skipped, none failed, in 1 h 30.
 
 | Server | Result | Why |
 |---|---|---|
-| Bedework 5 (sync suite only) | pass, 35 skipped | the skips need tasks or journals, which its calendar does not hold.  It stores each ATTENDEE twice, and caldav drops the copy |
+| Bedework 5 | pass | the stories that need tasks or journals skip, as its calendar holds neither.  It stores each ATTENDEE twice, and caldav drops the copy |
 | gmx | pass | |
 | robur | passes on rerun | about one request in 60 hangs for 70 s and is then reset, and some PUTs get a 500; seeding retries a failed write, but a test that reads 120 items still fails some runs, and `--last-failed` passed them all |
 | purelymail | pass | run alone, in 1 h 54 |

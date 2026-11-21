@@ -684,8 +684,8 @@ be four times that.
 **Tasks:**
 - [x] Run this library's conformance suite through the existing docker test servers
       (`pytest --caldav-servers=...`), along with readable scenario tests;
-      run on Baikal and SOGo so far
-- [ ] Confirm the capability declarations match observed behaviour per server
+      run on all of them, and on several external servers (docs/caldav-servers.md)
+- [x] Confirm the capability declarations match observed behaviour per server
 - [ ] File server-specific divergences as issues; fixing quirks in the caldav
       library is caldav's budget
 - [ ] If the target is a specific server count, name the servers — the existing
