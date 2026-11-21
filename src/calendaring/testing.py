@@ -4,7 +4,7 @@ Needs pytest and pytest-asyncio (``asyncio_mode = "auto"``).  See
 ``AsyncConformance`` for how to use it.
 """
 
-from ._async.conformance import AsyncConformance, writes
+from ._async.conformance import AsyncConformance, fresh_uid, writes
 from ._sync.conformance import SyncConformance
 
-__all__ = ["AsyncConformance", "SyncConformance", "writes"]
+__all__ = ["AsyncConformance", "SyncConformance", "fresh_uid", "writes"]

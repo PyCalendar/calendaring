@@ -24,11 +24,25 @@ it uses the first one listed, compares only what the test itself stored, and
 deletes what it stored afterwards, and puts back a name it changed.  Where it
 can make collections but not delete them, it reuses the ones an earlier run
 left, so they hold nothing of the suite's after a run.
+
+Every UID the suite writes ends in ``-t<unix time>@conformance.invalid``
+(``fresh_uid()``), and a write without it to a borrowed collection fails.  A
+run that was killed before it could tidy up leaves items behind; the next run
+to borrow that collection deletes those that carry, or relate to, a mark
+older than ``stale_after``.  Younger ones may belong to a run still going, a
+parallel pytest-xdist worker say, and are left alone.  The time is the
+writing machine's clock, so runs from machines whose clocks differ by more
+than that could sweep each other's items.  A backend that assigns
+its own UIDs (``identity.client-uid`` unsupported) replaces the mark, so what a
+dead run left there stays.
 """
 
 from __future__ import annotations
 
+import contextlib
 import pickle
+import re
+import time
 import uuid
 from collections.abc import Iterator, Callable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -72,6 +86,42 @@ def at(day: int, hour: int = 12, minute: int = 0) -> datetime:
 
 
 HOUR = timedelta(hours=1)
+
+
+# The end of every UID the suite writes: when, and that it was the suite.
+_MARK = "@conformance.invalid"
+_STAMPED = re.compile(r"-t(\d{1,11})@conformance\.invalid$")
+_ItemT = TypeVar("_ItemT", bound=Item)
+
+
+def fresh_uid(base: str | None = None) -> str:
+    """A UID carrying the suite's mark and the time, so a later run can sweep it up if this one dies."""
+    return f"{base or uuid.uuid4().hex}-t{int(time.time())}{_MARK}"
+
+
+def stamped(uid: str) -> datetime | None:
+    """When the suite wrote the item with this UID, or ``None`` if it carries no mark."""
+    found = _STAMPED.search(uid)
+    return None if found is None else datetime.fromtimestamp(int(found[1]), UTC)
+
+
+def own_and_related(component: icalendar.Component) -> list[str]:
+    """A component's UID and those it relates to: an item the library or server made for one the suite wrote
+    (a time entry, a completed occurrence) relates to it."""
+    related = component.get("RELATED-TO", [])
+    related = related if isinstance(related, list) else [related]
+    return [str(component.get("UID")), *(str(r) for r in related)]
+
+
+def marked(component: icalendar.Component) -> bool:
+    """Whether a component carries the suite's mark, or relates to one that does."""
+    return any(stamped(uid) is not None for uid in own_and_related(component))
+
+
+def new(kind: type[_ItemT], **properties: Any) -> _ItemT:
+    """``kind.new()``, with a marked UID unless one is given."""
+    properties.setdefault("uid", fresh_uid())
+    return kind.new(**properties)
 
 
 def key(item: Item) -> tuple[str, str | None]:
@@ -178,7 +228,7 @@ REQUIRED: dict[Component, dict[str, Any]] = {Component.EVENT: {"start": at(1)}}
 
 def minimal(kind: Component, summary: str, **properties: Any) -> Item:
     """The smallest valid item of a kind, with ``properties`` as ``new()`` takes them."""
-    return KINDS[kind][0].new(summary=summary, **REQUIRED.get(kind, {}), **properties)
+    return new(KINDS[kind][0], summary=summary, **REQUIRED.get(kind, {}), **properties)
 
 
 # A feature that is about one property, and a value of it to store.
@@ -248,23 +298,23 @@ def searchers() -> dict[str, Callable[[], Searcher]]:
 
 def dataset() -> list[Item]:
     """The items the search tests seed: something for each searcher to match and to miss."""
-    a = Task.new(summary="A: report", end=at(3), categories=["work"])
-    b = Task.new(summary="B: done", end=at(5), status=TaskStatus.COMPLETED)
-    c = Task.new(summary="C: open")
-    e1 = Event.new(summary="E1: meeting", start=at(3, 10), end=at(3, 11))
+    a = new(Task, summary="A: report", end=at(3), categories=["work"])
+    b = new(Task, summary="B: done", end=at(5), status=TaskStatus.COMPLETED)
+    c = new(Task, summary="C: open")
+    e1 = new(Event, summary="E1: meeting", start=at(3, 10), end=at(3, 11))
     alarm = icalendar.Alarm()
     alarm.add("ACTION", "DISPLAY")
     alarm.add("DESCRIPTION", "E1 starts soon")
     alarm.add("TRIGGER", timedelta(minutes=-30))
     e1.component.add_component(alarm)
-    t = Event.new(summary="T: Training session", start=at(10, 18), end=at(10, 19))
-    s = Event.new(summary="S: overnight", start=at(1, 20), end=at(2, 14))  # began before the range
-    ts = Task.new(summary="TS: start only", start=at(3))
-    tb = Task.new(summary="TB: spans the range", start=at(1), end=at(5))
-    e2 = Event.new(summary="E2: later", start=at(20, 10), end=at(20, 11))
-    r = Event.new(summary="R: daily", start=at(1, 9), end=at(1, 10))
+    t = new(Event, summary="T: Training session", start=at(10, 18), end=at(10, 19))
+    s = new(Event, summary="S: overnight", start=at(1, 20), end=at(2, 14))  # began before the range
+    ts = new(Task, summary="TS: start only", start=at(3))
+    tb = new(Task, summary="TB: spans the range", start=at(1), end=at(5))
+    e2 = new(Event, summary="E2: later", start=at(20, 10), end=at(20, 11))
+    r = new(Event, summary="R: daily", start=at(1, 9), end=at(1, 10))
     r.component.add("RRULE", {"FREQ": "DAILY", "COUNT": 5})
-    j = Journal.new(summary="J: notes", start=at(2))
+    j = new(Journal, summary="J: notes", start=at(2))
     return [a, b, c, ts, tb, e1, e2, t, s, r, j]
 
 
@@ -279,6 +329,10 @@ class SyncConformance:
 
     # Non-CalDAV backends are code, not servers, and must not declare UNKNOWN (§5.1).
     allow_unknown: bool = False
+
+    # How old a marked item in a borrowed collection must be before the suite
+    # takes it for a dead run's: longer than the slowest run against the server.
+    stale_after: ClassVar[timedelta] = timedelta(hours=24)
 
     # How many objects the paging test stores: more than a page of the APIs
     # backends list through (a JMAP /query limit, an issue tracker's list).
@@ -356,13 +410,35 @@ class SyncConformance:
         return SyncConformance._kept.get((backend.id, name))
 
     def borrow(self, collection: Collection) -> Collection:
-        """Use a collection the suite may not delete, and note what it writes there, to delete only that."""
+        """Use a collection the suite may not delete, and note what it writes there, to delete only that.
+
+        What a dead run left there is deleted first (see the module docstring).
+        """
         items, broken = readable(collection)
+        if writable(collection):
+            cutoff = datetime.now(UTC) - self.stale_after
+            dead = {i.native_id for i in items if self.left_by_a_dead_run(i, cutoff)}
+            for native_id in dead:
+                assert native_id is not None
+                with contextlib.suppress(NotFoundError):  # another run swept it first
+                    collection.delete(native_id)
+            if dead:
+                items, broken = readable(collection)
         before: set[str | None] = {i.native_id for i in items} | set(broken)
         written: set[str] = set()  # native ids and UIDs of what the suite created
         create = collection._create
+        # A backend that assigns UIDs replaces the mark, so a crash there leaves what nothing can tell apart
+        keeps_uids = level(collection, Feature.IDENTITY_CLIENT_UID) is not Support.UNSUPPORTED
 
         def noting(calendar: icalendar.Calendar, *, native_id: str | None, wire: bytes | None) -> StoredObject:
+            uids = {str(c.get("UID")) for c in calendar.subcomponents if "UID" in c}
+            unmarked = sorted(str(c["UID"]) for c in calendar.subcomponents if "UID" in c and not marked(c))
+            if keeps_uids and unmarked:  # not an assert: python -O would drop it
+                pytest.fail(f"UIDs {unmarked} lack the run's mark, -t<time>{_MARK}: write with fresh_uid()")
+            # Noted before the write: one whose answer was lost may have stored the item all the same
+            written.update(uids)
+            if native_id is not None:
+                written.add(native_id)
             stored = create(calendar, native_id=native_id, wire=wire)
             written.add(stored.native_id)
             written.update(str(c.get("UID")) for c in stored.calendar.subcomponents if "UID" in c)
@@ -410,6 +486,15 @@ class SyncConformance:
                 borrowed.delete(native_id)
 
     @staticmethod
+    def left_by_a_dead_run(item: Item, cutoff: datetime) -> bool:
+        """Whether ``item`` carries, or relates to, a suite mark older than ``cutoff``, or one without a time:
+        an earlier version of the suite wrote those."""
+        return any(
+            uid.endswith(_MARK) and ((when := stamped(uid)) is None or when < cutoff)
+            for uid in own_and_related(item.component)
+        )
+
+    @staticmethod
     def wrote(item: Item, before: set[str | None], written: set[str]) -> bool:
         if item.native_id in before:
             return False
@@ -439,7 +524,7 @@ class SyncConformance:
         assert snapshot(collection) == before, "an unsupported operation wrote something"
 
     def assert_read_only(self, collection: Collection) -> None:
-        self.assert_unsupported(collection, Feature.WRITE, lambda: collection.add(Task.new(summary="x")))
+        self.assert_unsupported(collection, Feature.WRITE, lambda: collection.add(new(Task, summary="x")))
 
     def add_task(self, collection: Collection, **properties: Any) -> SyncTask:
         """A stored task, or the test ends here having checked that it cannot be one."""
@@ -448,9 +533,10 @@ class SyncConformance:
             pytest.skip("read-only collection: the write paths were checked to raise")
         if not holds(collection, Component.TASK):
             self.assert_unsupported(
-                collection, Feature.COMPONENT_TASK, lambda: collection.add(Task.new(summary="x"))
+                collection, Feature.COMPONENT_TASK, lambda: collection.add(new(Task, summary="x"))
             )
             pytest.skip("the collection holds no tasks: adding one was checked to raise")
+        properties.setdefault("uid", fresh_uid())
         return collection.add_task(**properties)
 
     # === the declaration ==============================================
@@ -522,12 +608,12 @@ class SyncConformance:
         assert str(stored.component["SUMMARY"]) == "conformance"
         assert item.native_id is None, "add() changed its argument"
         assert item.etag is None, "add() changed its argument"
-        shorthand = getattr(collection, add_name)(summary="shorthand", **REQUIRED.get(kind, {}))
+        shorthand = getattr(collection, add_name)(uid=fresh_uid(), summary="shorthand", **REQUIRED.get(kind, {}))
         assert isinstance(shorthand, bound_class)
         assert {i.native_id for i in getattr(collection, list_name)()} >= {stored.native_id, shorthand.native_id}
 
     def test_uid_round_trips_as_declared(self, collection: Collection) -> None:
-        item = Task.new(summary="identity")
+        item = new(Task, summary="identity")
         placeholder = self.add_task(collection, summary="placeholder")
         placeholder.delete()
         stored = collection.add(item)
@@ -559,14 +645,14 @@ class SyncConformance:
             self.assert_unsupported(
                 collection,
                 Feature.IDENTITY_CLIENT_NATIVE_ID,
-                lambda: collection.add(Task.new(summary="named"), native_id=name),
+                lambda: collection.add(new(Task, summary="named"), native_id=name),
             )
             return
-        stored = collection.add(Task.new(summary="named"), native_id=name)
+        stored = collection.add(new(Task, summary="named"), native_id=name)
         assert stored.native_id == name
         assert (collection.get_by_native_id(name)).uid == stored.uid
         with pytest.raises(AlreadyExistsError) as info:
-            collection.add(Task.new(summary="clash"), native_id=name)
+            collection.add(new(Task, summary="clash"), native_id=name)
         assert info.value.taken == "native_id"
 
     # === reading ======================================================
@@ -610,7 +696,7 @@ class SyncConformance:
             assert found.native_id == added.native_id
         if level(collection, Feature.IDENTITY_CLIENT_UID) is not Support.UNSUPPORTED:
             first, _, first_kind = stored[0]
-            suffix = f"{first.uid}@conformance.invalid"
+            suffix = first.uid
             longer = collection.add(minimal(first_kind, "longer", uid=f"11-{suffix}"))
             shorter = collection.add(minimal(first_kind, "shorter", uid=f"1-{suffix}"))
             assert (collection.get(shorter.uid)).native_id == shorter.native_id
@@ -623,7 +709,7 @@ class SyncConformance:
             except UnsupportedError:
                 return  # no task list to be made: Bedework
             if writable(other) and holds(other, Component.TASK):
-                elsewhere = other.add_task(summary="in another collection")
+                elsewhere = other.add_task(uid=fresh_uid(), summary="in another collection")
                 with pytest.raises(NotFoundError):
                     collection.get(elsewhere.uid)
 
@@ -680,7 +766,7 @@ class SyncConformance:
     def test_wire(self, collection: Collection) -> None:
         stored = self.add_task(collection, summary="bytes")
         read = collection.get_by_native_id(nid(stored))
-        data = Task.new(summary="sent as bytes")
+        data = new(Task, summary="sent as bytes")
         payload = data.to_ical().replace(b"SUMMARY:", b"SUMMARY;X-CONFORMANCE=1:")
         if level(collection, Feature.WRITE_WIRE) is Support.UNSUPPORTED:
             self.assert_unsupported(collection, Feature.WRITE_WIRE, lambda: collection.add(data, wire=payload))
@@ -688,7 +774,7 @@ class SyncConformance:
         assert read.wire is not None
         assert Task.from_ical(read.wire) == read
         with pytest.raises(ValueError, match="UID"):
-            collection.add(Task.new(summary="other"), wire=payload)
+            collection.add(new(Task, summary="other"), wire=payload)
         written = collection.add(data, wire=payload)
         assert written == Task.from_ical(payload)
         assert written.wire is None
@@ -740,7 +826,7 @@ class SyncConformance:
         stored.delete()
         with pytest.raises(NotFoundError):
             collection.get_by_native_id(nid(stored))
-        other = collection.add_task(summary="by id")
+        other = collection.add_task(uid=fresh_uid(), summary="by id")
         collection.delete(nid(other))
         with pytest.raises(NotFoundError):
             collection.get(other.uid)
@@ -758,7 +844,7 @@ class SyncConformance:
         [stored] = self.seed(collection, [minimal(kinds[0], "seeded")])
         other = self.open_collection(backend, "conformance-other")
         for call in (
-            lambda: collection.add(Task.new(summary="x")),
+            lambda: collection.add(new(Task, summary="x")),
             lambda: collection.save(stored),
             lambda: stored.save(),
             lambda: collection.delete(stored),
@@ -772,7 +858,7 @@ class SyncConformance:
 
     def test_unknown_properties_survive(self, collection: Collection) -> None:
         self.add_task(collection, summary="setup")
-        item = Task.new(summary="passthrough")
+        item = new(Task, summary="passthrough")
         item.component.add("X-CONFORMANCE-UNKNOWN", "kept", parameters={"X-PARAM": "too"})
         stored = collection.add(item, loss=ALLOW)
         read = collection.get_by_native_id(nid(stored))
@@ -787,7 +873,7 @@ class SyncConformance:
     def test_property_round_trips_as_declared(self, collection: Collection, feature: Feature) -> None:
         self.add_task(collection, summary="setup")
         name, value, params = PROPERTY_SAMPLES[feature]
-        item = Task.new(summary=f"sample {feature}")
+        item = new(Task, summary=f"sample {feature}")
         item.component.add(name, value, parameters=params)
         support = level(collection, feature)
         if support is Support.UNSUPPORTED:
@@ -817,12 +903,12 @@ class SyncConformance:
         declared = collection.capabilities.details(feature).get("values")
         if support is Support.UNSUPPORTED:
             with pytest.raises(LossyWriteError):
-                collection.add(Task.new(summary="valued", **{name.lower(): candidates[1]}))
+                collection.add(new(Task, summary="valued", **{name.lower(): candidates[1]}))
             return
         if support is Support.LOSSY and declared is None:
             # The backend maps by rules of its own: each value is stored, or refused before I/O.
             for value in candidates:
-                item = Task.new(summary=f"{name}={value}")
+                item = new(Task, summary=f"{name}={value}")
                 item.component[name] = value
                 refused: list[str] = []
                 try:
@@ -833,7 +919,7 @@ class SyncConformance:
             return
         storable = candidates if declared is None else [v for v in candidates if v in declared]
         for value in storable:
-            item = Task.new(summary=f"{name}={value}")
+            item = new(Task, summary=f"{name}={value}")
             item.component[name] = value
             stored = collection.add(item)
             assert value_of((collection.reload(stored)).component, name) == value, value
@@ -842,7 +928,7 @@ class SyncConformance:
         assert declared is not None  # LOSSY without values returned above
         outside = [v for v in candidates if v not in declared]
         assert outside, f"{feature} is LOSSY but every value is storable"
-        item = Task.new(summary=f"{name} outside")
+        item = new(Task, summary=f"{name} outside")
         item.component[name] = outside[0]
         before = snapshot(collection)
         with pytest.raises(LossyWriteError) as info:
@@ -858,7 +944,7 @@ class SyncConformance:
         def policy(losses: Sequence[Loss], item: Item) -> None:
             seen.append(losses)
 
-        again = Task.new(summary=f"{name} outside, again")  # the first is stored now, under its UID
+        again = new(Task, summary=f"{name} outside, again")  # the first is stored now, under its UID
         again.component[name] = outside[0]
         collection.add(again, loss=policy)
         assert [[loss.property for loss in losses] for losses in seen] == [[name]]
@@ -867,7 +953,7 @@ class SyncConformance:
     @pytest.mark.parametrize("name", list(CORPUS))
     def test_real_world_objects_round_trip(self, collection: Collection, name: str) -> None:
         """Only what the declaration says may be lost: verify compares the stored object with what was sent."""
-        run = f"-{uuid.uuid4().hex[:12]}@conformance.invalid".encode()  # a crashed run may leave one behind
+        run = fresh_uid(f"-{uuid.uuid4().hex[:12]}").encode()  # a fresh UID: a crashed run may leave one behind
         item = Item.from_ical(CORPUS[name].replace(b"@conformance.invalid", run))
         kind = Component(item.component.name)
         if not holds(collection, kind):
@@ -888,7 +974,7 @@ class SyncConformance:
         stored = self.add_task(collection, summary="verified", description="checked after writing")
         stored.component["SUMMARY"] = "verified again"
         stored.save(verify=True)
-        collection.add(Task.new(summary="verified add"), verify=True)
+        collection.add(new(Task, summary="verified add"), verify=True)
 
     # === search =======================================================
 
@@ -988,7 +1074,7 @@ class SyncConformance:
         if not holds(collection, Component.TASK):
             assert collection.search(searcher) == []
             return
-        seeded = self.seed(collection, [Task.new(summary=s) for s in ("b", "c", "a")])
+        seeded = self.seed(collection, [new(Task, summary=s) for s in ("b", "c", "a")])
         found = stored_by(collection.search(searcher), seeded)
         assert [str(i.component["SUMMARY"]) for i in found] == ["a", "b", "c"]
 
@@ -1026,7 +1112,7 @@ class SyncConformance:
 
     def test_complete_a_recurring_task(self, collection: Collection) -> None:
         self.add_task(collection, summary="setup")
-        item = Task.new(summary="weekly", start=at(1), end=at(2))
+        item = new(Task, summary="weekly", start=at(1), end=at(2))
         item.component.add("RRULE", {"FREQ": "WEEKLY", "COUNT": 4})
         if level(collection, Feature.RECURRENCE) is Support.UNSUPPORTED:
             assert level(collection, Feature.TASK_COMPLETE_RECURRING) is Support.UNSUPPORTED
@@ -1086,9 +1172,9 @@ class SyncConformance:
             pytest.skip("nothing recurs: test_expanded_search_returns_occurrences checks the refusal")
         oslo = ZoneInfo("Europe/Oslo")
         start = at(1, 9).astimezone(oslo)
-        series = Event.new(summary="R: daily", start=start, end=start + timedelta(hours=1))
+        series = new(Event, summary="R: daily", start=start, end=start + timedelta(hours=1))
         series.component.add("RRULE", {"FREQ": "DAILY", "COUNT": 5})
-        moved = Event.new(summary="R: moved", start=start + timedelta(days=2, hours=5), uid=series.uid)
+        moved = new(Event, summary="R: moved", start=start + timedelta(days=2, hours=5), uid=series.uid)
         moved.component["DTEND"] = icalendar.vDDDTypes(start + timedelta(days=2, hours=6))
         moved.component.add("RECURRENCE-ID", start + timedelta(days=2))
         series.icalendar.add_component(moved.component)
@@ -1148,7 +1234,7 @@ class SyncConformance:
 
     def test_relatives(self, collection: Collection) -> None:
         parent = self.add_task(collection, summary="parent")
-        data = Task.new(summary="child")
+        data = new(Task, summary="child")
         data.component.add("RELATED-TO", parent.uid, parameters={"RELTYPE": "PARENT"})
         if level(collection, Feature.TASK_RELATIONS_PARENT) is Support.UNSUPPORTED:
             with pytest.raises(LossyWriteError):
@@ -1188,7 +1274,7 @@ class SyncConformance:
         change.component["SUMMARY"] = "changed"
         change.save()
         drop.delete()
-        added = collection.add_task(summary="added")
+        added = collection.add_task(uid=fresh_uid(), summary="added")
         since = collection.changes(start.token)
         assert {i.native_id for i in since.changed} == {change.native_id, added.native_id}
         assert since.deleted == [drop.native_id]
@@ -1209,13 +1295,13 @@ class SyncConformance:
         change.component["SUMMARY"] = "changed"
         change.save()
         drop.delete()
-        added = collection.add_task(summary="added")
+        added = collection.add_task(uid=fresh_uid(), summary="added")
         result = collection.changes(known=known)
         assert {i.native_id for i in result.changed} == {change.native_id, added.native_id}
         assert result.deleted == [drop.native_id]
         with pytest.raises(ValueError, match="known"):
             collection.changes(result.token, known=known)
-        later = collection.add_task(summary="later")
+        later = collection.add_task(uid=fresh_uid(), summary="later")
         following = collection.changes(result.token)  # a known= token is a token like any other
         assert {i.native_id for i in following.changed} == {later.native_id}
         assert following.deleted == []
@@ -1250,7 +1336,7 @@ class SyncConformance:
         kind = Component.TASK if holds(collection, Component.TASK) else Component.EVENT
         if not holds(collection, kind):
             pytest.skip("the collection holds neither tasks nor events")
-        [item] = self.seed(collection, [KINDS[kind][0].new(summary="logged against", start=at(1, 8))])
+        [item] = self.seed(collection, [new(KINDS[kind][0], summary="logged against", start=at(1, 8))])
         return item
 
     def assert_time_log_unsupported(self, collection: Collection, item: SyncItem) -> bool:
@@ -1340,7 +1426,7 @@ class SyncConformance:
     def test_the_timer(self, collection: Collection) -> None:
         if not holds(collection, Component.TASK):
             pytest.skip("the timer is for tasks, and the collection holds none")
-        [task] = self.seed(collection, [Task.new(summary="timed")])
+        [task] = self.seed(collection, [new(Task, summary="timed")])
         assert isinstance(task, SyncTask)
         if level(collection, Feature.TIME_LOG) is Support.UNSUPPORTED:
             self.assert_unsupported(collection, Feature.TIME_LOG, lambda: task.start_timer())
@@ -1389,7 +1475,7 @@ class SyncConformance:
     def test_time_spent_in_a_meeting(self, collection: Collection) -> None:
         if not holds(collection, Component.EVENT):
             pytest.skip("the collection holds no events")
-        [meeting] = self.seed(collection, [Event.new(summary="planning", start=at(5, 9), end=at(5, 10))])
+        [meeting] = self.seed(collection, [new(Event, summary="planning", start=at(5, 9), end=at(5, 10))])
         if self.assert_time_log_unsupported(collection, meeting) or not writable(collection):
             return
         before = collection.reload(meeting)  # as stored: a server may add to what was sent
@@ -1436,7 +1522,7 @@ class SyncConformance:
         if level(target, Feature.CHANGES) is Support.UNSUPPORTED:
             pytest.skip("the second collection has no change feed")
         here, there = collection.changes(), target.changes()
-        elsewhere = target.add_task(summary="added there")
+        elsewhere = target.add_task(uid=fresh_uid(), summary="added there")
         moved = collection.move(task, target)
         since_here = collection.changes(here.token)
         since_there = target.changes(there.token)
@@ -1556,7 +1642,7 @@ class SyncConformance:
         assert copied.collection is collection
         assert copied is not stored
         before = snapshot(collection)
-        bound = collection.bind(Task.new(summary="not stored"))
+        bound = collection.bind(new(Task, summary="not stored"))
         assert isinstance(bound, SyncTask)
         assert bound.collection is collection
         assert snapshot(collection) == before, "bind() did I/O"
