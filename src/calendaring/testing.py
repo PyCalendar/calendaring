@@ -1,4 +1,6 @@
-"""The backend conformance suite, for a backend's own test module (roadmap 1.2).
+"""For tests only, but public API: external backends' tests import the suite from here.
+
+The backend conformance suite, for a backend's own test module (roadmap 1.2).
 
 Needs pytest and pytest-asyncio (``asyncio_mode = "auto"``).  See
 ``AsyncConformance`` for how to use it.

@@ -1,5 +1,7 @@
 # Hand-written source; tools/generate_sync.py derives ../_sync/conformance.py from this file.
-"""The backend conformance suite (roadmap 1.2): one test suite every backend must pass.
+"""For tests only, but in the package: external backends' tests use it through ``calendaring.testing``.
+
+The backend conformance suite (roadmap 1.2): one test suite every backend must pass.
 
 A backend's test module subclasses it and says how to open the backend::
 

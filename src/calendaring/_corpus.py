@@ -1,4 +1,6 @@
-"""Objects as real calendars hold them, for the conformance suite's round trip (mode-free).
+"""For tests only, but in the package: the conformance suite, which external backends' tests run, needs it.
+
+Objects as real calendars hold them, for the conformance suite's round trip (mode-free).
 
 Each one carries what a backend is tempted to lose: time zones and their
 VTIMEZONE, floating times, dates, alarms, a recurrence set with EXDATE,
