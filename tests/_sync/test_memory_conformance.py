@@ -41,6 +41,7 @@ from calendaring import (
     Support,
     SyncToken,
     Task,
+    TransportError,
     VerificationError,
 )
 from calendaring._sync.conformance import snapshot
@@ -330,6 +331,14 @@ def sharing(profile: Profile, store: MemoryStore | None = None) -> MemoryBackend
     return backend
 
 
+class LosesAnswers(MemoryCollection):
+    """Stores what it is given, then fails the write as if the answer was lost."""
+
+    def _create(self, calendar: icalendar.Calendar, *, native_id: str | None, wire: bytes | None) -> StoredObject:
+        super()._create(calendar, native_id=native_id, wire=wire)
+        raise TransportError("read timed out")
+
+
 class TestTidyingUp:
     """What the suite leaves behind on a backend that keeps data between tests."""
 
@@ -359,6 +368,19 @@ class TestTidyingUp:
         collection.add_task(summary="the suite's")
         suite.tidy_up(backend)
         assert list(backend.store.calendars["default"].objects) == [bad]
+
+    def test_a_write_whose_answer_was_lost_is_tidied_up(self) -> None:
+        class Backend(MemoryBackend):
+            collection_class = LosesAnswers
+
+        backend = Backend(profile=MINIMAL)
+        suite = self.suite()
+        collection = suite.open_collection(backend)
+        with pytest.raises(TransportError):
+            collection.add_task(summary="stored all the same")
+        assert collection.search()
+        suite.tidy_up(backend)
+        assert list(backend.store.calendars["default"].objects) == []
 
     def test_a_borrowed_collection_keeps_its_name(self) -> None:
         backend = sharing(MINIMAL)

@@ -331,6 +331,10 @@ class SyncConformance:
         create = collection._create
 
         def noting(calendar: icalendar.Calendar, *, native_id: str | None, wire: bytes | None) -> StoredObject:
+            # Noted before the write: one whose answer was lost may have stored the item all the same
+            written.update(str(c.get("UID")) for c in calendar.subcomponents if "UID" in c)
+            if native_id is not None:
+                written.add(native_id)
             stored = create(calendar, native_id=native_id, wire=wire)
             written.add(stored.native_id)
             written.update(str(c.get("UID")) for c in stored.calendar.subcomponents if "UID" in c)
