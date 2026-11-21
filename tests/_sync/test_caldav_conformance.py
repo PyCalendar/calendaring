@@ -8,7 +8,9 @@ from typing import Any
 import pytest
 from conftest import wait_for_server
 
-from calendaring import Backend
+from calendaring import Backend, Collection, Component, Feature, NotFoundError
+from calendaring._sync.caldav import CalDAVBackend, CalDAVCollection
+from calendaring._caldav_io import Calendar
 from calendaring.testing import SyncConformance
 
 
@@ -23,9 +25,34 @@ class CalDAVConformance(SyncConformance):
         wait_for_server(backend, self.monkeypatch)
         return backend
 
+    def reopen(self, backend: Backend, kept: Collection) -> Collection:
+        # From its URL: a lookup by id lists every calendar, minutes on an account with hundreds.
+        assert isinstance(backend, CalDAVBackend)
+        assert isinstance(kept, CalDAVCollection)
+        client: Any = backend._dav.client  # caldav types Calendar's client as the sync one
+        return backend._wrap(Calendar(client=client, url=kept.url))
+
 
 class TestCalDAVServers(CalDAVConformance):
     @pytest.fixture(autouse=True)
     def _server(self, caldav_server: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         self.server = caldav_server
         self.monkeypatch = monkeypatch
+
+
+def test_a_kept_calendar_is_reopened_from_its_url(caldav_server: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    suite = TestCalDAVServers()
+    suite.server, suite.monkeypatch = caldav_server, monkeypatch
+    with suite.open_backend() as backend:
+        if not all(backend.capabilities.supports(f) for f in (Feature.CREATE_COLLECTION, Feature.DELETE_COLLECTION)):
+            pytest.skip("the server cannot make and delete a calendar")
+        made = backend.create_collection("conformance-reopened", components=(Component.TASK,))
+        try:
+            with suite.open_backend() as other:
+                again = suite.reopen(other, made)
+                assert (again.id, again.name) == (made.id, made.name)
+        finally:
+            made.delete_collection()
+        with suite.open_backend() as other:
+            with pytest.raises(NotFoundError):
+                suite.reopen(other, made)

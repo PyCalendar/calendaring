@@ -333,6 +333,11 @@ def sharing(profile: Profile, store: MemoryStore | None = None) -> AsyncMemoryBa
 class TestTidyingUp:
     """What the suite leaves behind on a backend that keeps data between tests."""
 
+    @pytest.fixture(autouse=True)
+    def _nothing_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Every memory backend's id is "memory": what an earlier test kept must not leak in."""
+        monkeypatch.setattr(AsyncConformance, "_kept", {})
+
     def suite(self) -> AsyncConformance:
         suite = AsyncConformance()
         suite._made, suite._borrowed = [], []
@@ -378,6 +383,75 @@ class TestTidyingUp:
             await suite.tidy_up(backend)
         assert sorted(store.calendars) == ["conformance", "conformance-new", "default"]
         assert [len(c.objects) for c in store.calendars.values()] == [0, 0, 0]
+
+    def counting(self, backend: AsyncMemoryBackend, listings: list[None]) -> AsyncMemoryBackend:
+        """``backend``, noting in ``listings`` each time its collections are listed."""
+        listed = backend.collections
+
+        async def collections() -> list[AsyncCollection]:
+            listings.append(None)
+            return await listed()
+
+        backend.collections = collections  # type: ignore[method-assign]
+        return backend
+
+    async def test_a_kept_collection_is_found_again_without_listing_them_all(self) -> None:
+        # 469 calendars on a Synology took minutes to list, in every test.
+        store = sharing(TRACKER).store
+        listings: list[None] = []
+        ids = set()
+        for _ in range(3):
+            backend = self.counting(sharing(TRACKER, store), listings)
+            suite = self.suite()
+            ids.add((await suite.open_collection(backend, name="kept-once")).id)
+            await suite.tidy_up(backend)
+        assert len(ids) == 1
+        assert len(listings) == 1
+
+    async def test_one_listing_finds_every_collection_a_run_left(self) -> None:
+        store = sharing(TRACKER).store
+        for name in ("left-a", "left-b"):
+            store.add_calendar(name, name, [Component.TASK])
+        listings: list[None] = []
+        for name in ("left-a", "left-b"):
+            suite = self.suite()
+            assert (await suite.open_collection(self.counting(sharing(TRACKER, store), listings), name)).id == name
+        assert len(listings) == 1
+
+    async def test_a_kept_collection_deleted_meanwhile_is_made_again(self) -> None:
+        store = sharing(TRACKER).store
+        listings: list[None] = []
+        ids, counts = [], []
+        for gone in (True, False, False):
+            suite = self.suite()
+            ids.append((await suite.open_collection(self.counting(sharing(TRACKER, store), listings), "gone")).id)
+            counts.append(len(listings))
+            if gone:
+                del store.calendars[ids[-1]]
+        assert ids[1] in store.calendars
+        assert ids[1:] == [ids[1], ids[1]]
+        assert counts[2] == counts[1]  # the one made again is kept
+
+    async def test_a_kept_collection_renamed_meanwhile_is_not_used(self) -> None:
+        store = sharing(TRACKER).store
+        suite = self.suite()
+        first = await suite.open_collection(sharing(TRACKER, store), "renamed")
+        store.calendars[first.id].name = "the user's now"
+        suite = self.suite()
+        again = await suite.open_collection(sharing(TRACKER, store), "renamed")
+        assert again.id != first.id
+        assert again.name == "renamed"
+
+    async def test_a_kept_id_now_shared_by_several_names_falls_back_to_listing(self) -> None:
+        # The default reopen() looks up by id, and else by name: several of that name are ambiguous.
+        store = sharing(TRACKER).store
+        suite = self.suite()
+        first = await suite.open_collection(sharing(TRACKER, store), "twice")
+        del store.calendars[first.id]
+        for id in ("twice-1", "twice-2"):
+            store.add_calendar(id, "twice", [Component.TASK])
+        suite = self.suite()
+        assert (await suite.open_collection(sharing(TRACKER, store), "twice")).id in ("twice-1", "twice-2")
 
 
 # Backends that each break one rule, and the suite test that must catch it.
