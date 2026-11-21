@@ -106,6 +106,41 @@ class TestMinimalProfile(AsyncConformance):
         assert {i.native_id for i in await collection.search()} == before
 
 
+class TestReusedCollections(AsyncConformance):
+    """Where making collections is rate-limited (Nextcloud), the suite keeps the ones it makes and uses them again.
+
+    One backend serves every test of the class, so each test meets the
+    collections the tests before it kept, as on the server.
+    """
+
+    shared: ClassVar[AsyncMemoryBackend | None] = None
+
+    def reuses_collections(self, backend: AsyncBackend) -> bool:
+        return True
+
+    async def open_backend(self) -> AsyncBackend:
+        if TestReusedCollections.shared is None:
+            TestReusedCollections.shared = AsyncMemoryBackend(profile=FULL)
+        return TestReusedCollections.shared
+
+    async def test_a_collection_is_made_once_and_kept(self) -> None:
+        backend = AsyncMemoryBackend(profile=FULL)
+        self._made, self._borrowed = [], []
+        first = await self.open_collection(backend)
+        await first.add_task(summary="the suite's", uid=fresh_uid())
+        await self.tidy_up(backend)
+        assert first.id in [c.id for c in await backend.collections()]
+        assert await first.search() == []
+        other = await (await backend.collection(first.id)).add_task(summary="another client's")
+        self._made, self._borrowed = [], []
+        again = await self.open_collection(backend)
+        assert again.id == first.id
+        await again.add_task(summary="the suite's", uid=fresh_uid())
+        await self.tidy_up(backend)
+        assert [i.native_id for i in await again.search()] == [other.native_id]
+        assert [c.name for c in await backend.collections()].count(first.name) == 1
+
+
 class TestFeedProfile(AsyncConformance):
     async def open_backend(self) -> AsyncBackend:
         backend = AsyncMemoryBackend(profile=FEED)
@@ -480,6 +515,17 @@ class TestTidyingUp:
             await suite.tidy_up(backend)
         assert len(ids) == 1
         assert len(listings) == 1
+
+    async def test_a_kept_events_collection_is_found_again_without_a_listing(self) -> None:
+        class Reusing(AsyncConformance):
+            def reuses_collections(self, backend: AsyncBackend) -> bool:
+                return True
+
+        suite = Reusing()
+        suite._made, suite._borrowed = [], []
+        backend = sharing(FULL)
+        await suite.test_create_collection_holds_one_of_what_was_asked(backend)
+        assert (backend.id, "conformance-events") in AsyncConformance._kept
 
     async def test_one_listing_finds_every_collection_a_run_left(self) -> None:
         store = sharing(TRACKER).store

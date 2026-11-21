@@ -31,6 +31,11 @@ from calendaring.testing import SyncConformance
 SEED_ATTEMPTS = 3
 
 
+def creation_limited(features: Any) -> bool:
+    """Whether the server lets an account make only so many calendars an hour (caldav's rate-limit hint: ecloud)."""
+    return bool(features.is_supported("rate-limit", dict).get("create_calendar_per_hour"))
+
+
 class CalDAVConformance(SyncConformance):
     # A CalDAV server is probed, not known in advance (§5.1).
     allow_unknown = True
@@ -85,6 +90,9 @@ class CalDAVConformance(SyncConformance):
         assert isinstance(kept, CalDAVCollection)
         client: Any = backend._dav.client  # caldav types Calendar's client as the sync one
         return backend._wrap(Calendar(client=client, url=kept.url))
+
+    def reuses_collections(self, backend: Backend) -> bool:
+        return creation_limited(backend._dav.client.features)  # type: ignore[attr-defined]
 
 
 class TestCalDAVServers(CalDAVConformance):
@@ -189,3 +197,13 @@ def test_a_kept_calendar_is_reopened_from_its_url(caldav_server: Any, monkeypatc
         with suite.open_backend() as other:
             with pytest.raises(NotFoundError):
                 suite.reopen(other, made)
+
+
+def test_a_server_limiting_calendar_creation_keeps_its_calendars() -> None:
+    from caldav.compatibility_hints import FeatureSet as Unannotated
+
+    FeatureSet: Any = Unannotated  # caldav leaves it unannotated
+    limited = FeatureSet({"rate-limit": {"enable": True, "create_calendar_per_hour": 10}})
+    assert creation_limited(limited)
+    assert not creation_limited(FeatureSet({"rate-limit": {"enable": True, "interval": 1, "count": 1}}))
+    assert not creation_limited(FeatureSet({}))
