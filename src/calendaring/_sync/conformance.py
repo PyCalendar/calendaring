@@ -32,7 +32,7 @@ import pickle
 import uuid
 from collections.abc import Iterator, Callable, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 from zoneinfo import ZoneInfo
 
 import icalendar
@@ -44,6 +44,7 @@ from .._mapping import differences, property_lines
 from ..capabilities import BACKEND_FEATURES, Feature, Support
 from ..errors import (
     AlreadyExistsError,
+    AmbiguousError,
     BackendError,
     CalendaringError,
     ConflictError,
@@ -283,6 +284,9 @@ class SyncConformance:
     # backends list through (a JMAP /query limit, an issue tracker's list).
     page_size_hint: int = 120
 
+    # The collections tests made or found, by backend id and name, for left_behind().
+    _kept: ClassVar[dict[tuple[str, str], Collection]] = {}
+
     # --- hooks a backend's test module may override --------------------
 
     def open_backend(self) -> Backend:
@@ -306,6 +310,7 @@ class SyncConformance:
                 return self.borrow(left)
             try:
                 made = backend.create_collection(name, components=components)
+                SyncConformance._kept[backend.id, name] = made
             except CalendaringError:
                 if backend.capabilities.level(Feature.CREATE_COLLECTION) is not Support.UNKNOWN:
                     raise
@@ -319,9 +324,36 @@ class SyncConformance:
             pytest.fail("the backend can neither create a collection nor list one")
         return self.borrow(existing[0])
 
+    def reopen(self, backend: Backend, kept: Collection) -> Collection:
+        """``kept``, a collection an earlier test had from its backend, from ``backend``.
+
+        ``NotFoundError`` if it is gone.  This looks it up by id, which on
+        some backends lists them all; a backend that can do better (from a
+        URL, say) overrides it.
+        """
+        return backend.collection(kept.id)
+
     def left_behind(self, backend: Backend, name: str) -> Collection | None:
-        named = [c for c in backend.collections() if c.name == name]
-        return named[0] if named else None
+        """The collection named ``name`` that an earlier test or run left, if any.
+
+        One seen earlier in the session, in a listing or made by a test, is
+        opened again by ``reopen()``: with hundreds of calendars, a listing can
+        take minutes.  Where a run left every name, the session lists once.
+        """
+        kept = SyncConformance._kept.get((backend.id, name))
+        if kept is not None:
+            try:
+                found = self.reopen(backend, kept)
+            except (NotFoundError, AmbiguousError):
+                pass
+            else:
+                if found.name == name:
+                    return found
+            del SyncConformance._kept[backend.id, name]
+        for listed in backend.collections():
+            if listed.name is not None:
+                SyncConformance._kept.setdefault((backend.id, listed.name), listed)
+        return SyncConformance._kept.get((backend.id, name))
 
     def borrow(self, collection: Collection) -> Collection:
         """Use a collection the suite may not delete, and note what it writes there, to delete only that."""

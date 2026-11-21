@@ -32,7 +32,7 @@ import pickle
 import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 from zoneinfo import ZoneInfo
 
 import icalendar
@@ -44,6 +44,7 @@ from .._mapping import differences, property_lines
 from ..capabilities import BACKEND_FEATURES, Feature, Support
 from ..errors import (
     AlreadyExistsError,
+    AmbiguousError,
     BackendError,
     CalendaringError,
     ConflictError,
@@ -283,6 +284,9 @@ class AsyncConformance:
     # backends list through (a JMAP /query limit, an issue tracker's list).
     page_size_hint: int = 120
 
+    # The collections tests made or found, by backend id and name, for left_behind().
+    _kept: ClassVar[dict[tuple[str, str], AsyncCollection]] = {}
+
     # --- hooks a backend's test module may override --------------------
 
     async def open_backend(self) -> AsyncBackend:
@@ -306,6 +310,7 @@ class AsyncConformance:
                 return await self.borrow(left)
             try:
                 made = await backend.create_collection(name, components=components)
+                AsyncConformance._kept[backend.id, name] = made
             except CalendaringError:
                 if backend.capabilities.level(Feature.CREATE_COLLECTION) is not Support.UNKNOWN:
                     raise
@@ -319,9 +324,36 @@ class AsyncConformance:
             pytest.fail("the backend can neither create a collection nor list one")
         return await self.borrow(existing[0])
 
+    async def reopen(self, backend: AsyncBackend, kept: AsyncCollection) -> AsyncCollection:
+        """``kept``, a collection an earlier test had from its backend, from ``backend``.
+
+        ``NotFoundError`` if it is gone.  This looks it up by id, which on
+        some backends lists them all; a backend that can do better (from a
+        URL, say) overrides it.
+        """
+        return await backend.collection(kept.id)
+
     async def left_behind(self, backend: AsyncBackend, name: str) -> AsyncCollection | None:
-        named = [c for c in await backend.collections() if c.name == name]
-        return named[0] if named else None
+        """The collection named ``name`` that an earlier test or run left, if any.
+
+        One seen earlier in the session, in a listing or made by a test, is
+        opened again by ``reopen()``: with hundreds of calendars, a listing can
+        take minutes.  Where a run left every name, the session lists once.
+        """
+        kept = AsyncConformance._kept.get((backend.id, name))
+        if kept is not None:
+            try:
+                found = await self.reopen(backend, kept)
+            except (NotFoundError, AmbiguousError):
+                pass
+            else:
+                if found.name == name:
+                    return found
+            del AsyncConformance._kept[backend.id, name]
+        for listed in await backend.collections():
+            if listed.name is not None:
+                AsyncConformance._kept.setdefault((backend.id, listed.name), listed)
+        return AsyncConformance._kept.get((backend.id, name))
 
     async def borrow(self, collection: AsyncCollection) -> AsyncCollection:
         """Use a collection the suite may not delete, and note what it writes there, to delete only that."""
