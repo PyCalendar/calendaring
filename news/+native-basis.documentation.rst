@@ -1,0 +1,1 @@
+The design document now says where a task keeps the ``STATUS`` and ``PRIORITY`` its backend wrote with ``native_status`` and ``native_priority``: in a private ``_native_basis``, which a save compares against.

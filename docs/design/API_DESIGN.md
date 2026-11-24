@@ -820,6 +820,7 @@ class TaskStatus(StrEnum):              # values are the iCalendar strings
 class Task(Item):                       # component is an icalendar.Todo
     native_status: str | None           # see "Native passthrough"; not in the iCalendar data
     native_priority: str | None         # likewise
+    _native_basis: tuple[str | None, str | None]   # STATUS, PRIORITY the backend wrote with them; private
     planned_start: datetime | None      # X-PYCAL-PLANNED-START (see "Properties with no standard home")
     planned_end: datetime | None        # X-PYCAL-PLANNED-END
     # the time log: see "Time tracking" below, on every bound item
@@ -1033,6 +1034,31 @@ stays in "Review", and one that the caller sets to `COMPLETED` goes
 wherever the backend maps `COMPLETED`. Comparing on save, rather than
 clearing the native value in a setter, also catches a change made through
 `item.icalendar` directly.
+
+The remembered values live on the item, in the private
+`_native_basis`: the `STATUS` and `PRIORITY` (as strings, `None` where
+absent; `PRIORITY:0` counts as absent) that the backend wrote into the
+component when it set `native_status` and `native_priority`. A
+backend's primitives hand it over next to them, as
+`StoredObject.native_basis`, and the generic layer sets all three
+together. There is one basis per stored object: its occurrences share
+it, as they share the native values. A task that was never read has
+the basis `(None, None)`.
+
+Not kept in the backend, because an item is plain data
+([A1](#1-layers-and-modes)) that outlives the collection object that
+read it and may be saved through another one; and not recomputed from
+`.native`, because `as_data()` drops that live object, and a backend
+need not provide one at all
+([§8](#8-the-escape-hatch)).
+
+A caller who assigns `native_status` or `native_priority` directly is
+asking for that native value. Each half is compared on its own: the
+backend uses the native value while `STATUS` (or `PRIORITY`) still
+matches its half of the basis, and maps the property otherwise. So a
+changed property wins, silently, over a native value assigned with it,
+and on a new task a native value is used only where the property is
+absent.
 
 This answers [survey §4.4](TASK_MODEL_SURVEY.md#44-details-to-be-decided-later)'s question "plain string or typed object": a plain
 string. Legal transitions (RT, OpenProject) are reachable through `native`
