@@ -436,8 +436,7 @@ class AsyncConformance:
             dead = {i.native_id for i in items if self.left_by_a_dead_run(i, cutoff)}
             for native_id in dead:
                 assert native_id is not None
-                with contextlib.suppress(NotFoundError):  # another run swept it first
-                    await collection.delete(native_id)
+                await self.sweep(collection, native_id)
             if dead:
                 items, broken = await readable(collection)
         before: set[str | None] = {i.native_id for i in items} | set(broken)
@@ -467,6 +466,11 @@ class AsyncConformance:
     async def seed(self, collection: AsyncCollection, items: Sequence[Item]) -> list[AsyncItem]:
         """Store items the way a test needs them.  A read-only backend overrides this to seed natively."""
         return [await collection.add(item, loss=ALLOW) for item in items]
+
+    async def sweep(self, collection: AsyncCollection, native_id: str) -> None:
+        """Delete an item a dead run left in a borrowed collection; one already gone is fine.  A flaky backend overrides this to retry."""
+        with contextlib.suppress(NotFoundError):  # another run swept it first
+            await collection.delete(native_id)
 
     async def unseed(self, collection: AsyncCollection, item: AsyncItem) -> None:
         """Remove a seeded item.  A read-only backend overrides this to remove it natively."""

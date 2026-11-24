@@ -75,6 +75,21 @@ class CalDAVConformance(SyncConformance):
                         raise
         return seeded
 
+    def sweep(self, collection: Collection, native_id: str) -> None:
+        """Delete a dead run's leftover, again after a failed DELETE: robur drops requests as it does while seeding.
+
+        Gone on a retry is taken for a lost answer to a DELETE that went through.
+        """
+        for attempt in range(SEED_ATTEMPTS):
+            try:
+                collection.delete(native_id)
+                return
+            except NotFoundError:  # swept by another run, or by an earlier try whose answer was lost
+                return
+            except BackendError:
+                if attempt == SEED_ATTEMPTS - 1:
+                    raise
+
     @staticmethod
     def _seeded(collection: Collection, item: Item, seeded: list[SyncItem]) -> bool:
         """Whether a write whose answer was lost stored ``item``; if so it joins ``seeded``.  A failed read says no."""
@@ -197,6 +212,47 @@ def test_a_kept_calendar_is_reopened_from_its_url(caldav_server: Any, monkeypatc
         with suite.open_backend() as other:
             with pytest.raises(NotFoundError):
                 suite.reopen(other, made)
+
+
+class _FlakyDeletes:
+    """Answers ``delete`` as told: "ok", "deleted-then-lost" (gone, answer lost), "lost" (nothing deleted) or "refused" (a 500)."""
+
+    def __init__(self, outcomes: list[str]) -> None:
+        self.outcomes = outcomes
+        self.present = True
+        self.deletes = 0
+
+    def delete(self, native_id: str) -> None:
+        outcome = self.outcomes[self.deletes] if self.deletes < len(self.outcomes) else "ok"
+        self.deletes += 1
+        if not self.present:
+            raise NotFoundError(native_id)
+        if outcome in ("ok", "deleted-then-lost"):
+            self.present = False
+        if outcome == "refused":
+            raise BackendError("DeleteError at '500 Internal Server Error'")
+        if outcome in ("lost", "deleted-then-lost"):
+            raise TransportError("read timed out")
+
+
+@pytest.mark.parametrize(
+    ("outcomes", "deletes"),
+    [([], 1), (["lost"], 2), (["refused"], 2), (["deleted-then-lost"], 2), (["lost", "lost"], 3)],
+)
+def test_the_sweep_gets_past_a_lost_answer(outcomes: list[str], deletes: int) -> None:
+    """A dropped DELETE while sweeping a dead run's leftovers is setup trouble, not a failure of the test."""
+    collection = _FlakyDeletes(outcomes)
+    CalDAVConformance().sweep(collection, "left-behind.ics")  # type: ignore[arg-type]
+    assert not collection.present
+    assert collection.deletes == deletes
+
+
+@pytest.mark.parametrize("outcome", ["lost", "refused"])
+def test_the_sweep_gives_up_on_a_server_that_never_deletes(outcome: str) -> None:
+    collection = _FlakyDeletes([outcome] * 10)
+    with pytest.raises(BackendError):
+        CalDAVConformance().sweep(collection, "left-behind.ics")  # type: ignore[arg-type]
+    assert collection.deletes == SEED_ATTEMPTS
 
 
 def test_a_server_limiting_calendar_creation_keeps_its_calendars() -> None:

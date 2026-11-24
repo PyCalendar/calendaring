@@ -436,8 +436,7 @@ class SyncConformance:
             dead = {i.native_id for i in items if self.left_by_a_dead_run(i, cutoff)}
             for native_id in dead:
                 assert native_id is not None
-                with contextlib.suppress(NotFoundError):  # another run swept it first
-                    collection.delete(native_id)
+                self.sweep(collection, native_id)
             if dead:
                 items, broken = readable(collection)
         before: set[str | None] = {i.native_id for i in items} | set(broken)
@@ -467,6 +466,11 @@ class SyncConformance:
     def seed(self, collection: Collection, items: Sequence[Item]) -> list[SyncItem]:
         """Store items the way a test needs them.  A read-only backend overrides this to seed natively."""
         return [collection.add(item, loss=ALLOW) for item in items]
+
+    def sweep(self, collection: Collection, native_id: str) -> None:
+        """Delete an item a dead run left in a borrowed collection; one already gone is fine.  A flaky backend overrides this to retry."""
+        with contextlib.suppress(NotFoundError):  # another run swept it first
+            collection.delete(native_id)
 
     def unseed(self, collection: Collection, item: SyncItem) -> None:
         """Remove a seeded item.  A read-only backend overrides this to remove it natively."""

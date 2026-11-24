@@ -447,6 +447,27 @@ class TestTidyingUp:
         suite.tidy_up(backend)
         assert len(backend.store.calendars["default"].objects) == 2
 
+    def test_the_sweep_goes_through_its_hook(self) -> None:
+        """A backend's override of sweep(), the CalDAV retry say, is what deletes the leftovers."""
+        swept: list[str] = []
+
+        class Recording(SyncConformance):
+            def sweep(self, collection: Collection, native_id: str) -> None:
+                swept.append(native_id)
+                super().sweep(collection, native_id)
+
+        backend = sharing(MINIMAL)
+        crashed = Task.new(
+            summary="a crashed run's", uid=f"x-t{int(time_module.time()) - 2 * 86400}@conformance.invalid"
+        )
+        backend.store.calendars["default"].put(crashed.to_ical())
+        backend.store.calendars["default"].put(Task.new(summary="the user's").to_ical())
+        suite = Recording()
+        suite._made, suite._borrowed = [], []
+        collection = suite.open_collection(backend)
+        assert len(swept) == 1
+        assert [str(i.component["SUMMARY"]) for i in collection.search()] == ["the user's"]
+
     def test_an_older_runs_unstamped_leftover_is_swept(self) -> None:
         backend = sharing(MINIMAL)
         for uid in ("corpus-task-0123456789ab@conformance.invalid", f"x-t{'9' * 30}@conformance.invalid"):
