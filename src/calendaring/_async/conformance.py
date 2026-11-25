@@ -468,8 +468,13 @@ class AsyncConformance:
         return [await collection.add(item, loss=ALLOW) for item in items]
 
     async def sweep(self, collection: AsyncCollection, native_id: str) -> None:
-        """Delete an item a dead run left in a borrowed collection; one already gone is fine.  A flaky backend overrides this to retry."""
-        with contextlib.suppress(NotFoundError):  # another run swept it first
+        """Delete an item of the suite's, or one a dead run left, in a borrowed collection; one already gone is fine.
+
+        A flaky backend overrides this to retry.
+        """
+        # Gone is the goal: another run may have swept it first.  Nothing checks a delete that did
+        # nothing: a later run sweeps what stays, as caldav's own test cleanup trusts its deletes.
+        with contextlib.suppress(NotFoundError):
             await collection.delete(native_id)
 
     async def unseed(self, collection: AsyncCollection, item: AsyncItem) -> None:
@@ -503,7 +508,7 @@ class AsyncConformance:
             items, _ = await readable(borrowed)
             for native_id in {i.native_id for i in items if self.wrote(i, before, written)}:
                 assert native_id is not None
-                await borrowed.delete(native_id)
+                await self.sweep(borrowed, native_id)
 
     @staticmethod
     def left_by_a_dead_run(item: Item, cutoff: datetime) -> bool:

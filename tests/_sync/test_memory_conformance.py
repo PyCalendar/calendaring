@@ -467,6 +467,11 @@ class TestTidyingUp:
         collection = suite.open_collection(backend)
         assert len(swept) == 1
         assert [str(i.component["SUMMARY"]) for i in collection.search()] == ["the user's"]
+        # The teardown deletes what the test stored the same way
+        stored = collection.add_task(summary="the suite's", uid=fresh_uid())
+        suite.tidy_up(backend)
+        assert swept[1:] == [stored.native_id]
+        assert [str(i.component["SUMMARY"]) for i in collection.search()] == ["the user's"]
 
     def test_an_older_runs_unstamped_leftover_is_swept(self) -> None:
         backend = sharing(MINIMAL)

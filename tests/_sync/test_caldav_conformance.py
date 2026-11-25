@@ -76,7 +76,7 @@ class CalDAVConformance(SyncConformance):
         return seeded
 
     def sweep(self, collection: Collection, native_id: str) -> None:
-        """Delete a dead run's leftover, again after a failed DELETE: robur drops requests as it does while seeding.
+        """Delete a leftover or the test's own item, again after a failed DELETE: robur drops requests as it does while seeding.
 
         Gone on a retry is taken for a lost answer to a DELETE that went through.
         """
