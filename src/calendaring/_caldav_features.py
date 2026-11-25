@@ -80,7 +80,6 @@ TASK_FROM_SERVER = {
 
 # The same for what only a task has: lowered wherever tasks are held.
 TASK_ONLY_FROM_SERVER = {
-    Feature.TASK_PLANNED: "save-load.icalendar.x-property",  # X-PYCAL-PLANNED-*
     Feature.TASK_ESTIMATE: "save-load.icalendar.unknown-property",  # probed with ESTIMATED-DURATION
 }
 
@@ -145,7 +144,6 @@ STORED = frozenset(
         Feature.TASK_START,
         Feature.TASK_DUE,
         Feature.TASK_COMPLETED,
-        Feature.TASK_PLANNED,
         Feature.TASK_ESTIMATE,
         Feature.ALARMS,
         Feature.DATES,

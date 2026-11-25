@@ -7,6 +7,7 @@ import icalendar
 import pytest
 
 from calendaring import Event, InvalidDataError, Item, Journal, Task, TaskStatus
+from calendaring.capabilities import Feature
 from calendaring.items import split_stored, without_occurrence
 
 UTC_NOON = datetime(2026, 11, 1, 12, tzinfo=UTC)
@@ -143,15 +144,13 @@ def test_set_duration_moves_the_end_not_kept() -> None:
         Task.new(summary="no due").set_duration(timedelta(hours=1))
 
 
-def test_planned_start_and_end_are_x_pycal_properties() -> None:
+def test_a_task_has_no_planned_time_of_its_own() -> None:
+    """Planned time is a VEVENT linked to the task by RELATED-TO, which every client shows; no client
+    reads a planned start or end on a VTODO, so there are none, and X-PYCAL-PLANNED-* is not mapped."""
     task = Task.new(summary="a")
-    task.planned_start = UTC_NOON
-    task.planned_end = UTC_NOON + timedelta(days=1)
-    assert b"X-PYCAL-PLANNED-START:20261101T120000Z" in task.to_ical()
-    assert task.planned_end == UTC_NOON + timedelta(days=1)
-    assert Task.from_ical(task.to_ical()).planned_start == UTC_NOON
-    task.planned_start = None
-    assert "X-PYCAL-PLANNED-START" not in task.component
+    assert not hasattr(task, "planned_start")
+    assert not hasattr(task, "planned_end")
+    assert "TASK_PLANNED" not in Feature.__members__
 
 
 def test_task_status_values_are_the_icalendar_strings() -> None:

@@ -24,8 +24,8 @@ from icalendar.parser import Contentline
 from icalendar.prop import TypesFactory
 
 from .capabilities import Capabilities, Feature, Support
-from .items import X_PLANNED_END, X_PLANNED_START
 from .loss import Loss
+from .timetracking import X_TIME_ENTRY, X_TIMER_START
 
 __all__ = ["Change", "differences", "plan_calendar_losses", "plan_losses", "property_lines"]
 
@@ -64,8 +64,6 @@ TASK_ONLY: dict[str, Feature] = {
     "DTSTART": Feature.TASK_START,
     "DUE": Feature.TASK_DUE,
     "COMPLETED": Feature.TASK_COMPLETED,
-    X_PLANNED_START: Feature.TASK_PLANNED,
-    X_PLANNED_END: Feature.TASK_PLANNED,
     "ESTIMATED-DURATION": Feature.TASK_ESTIMATE,
 }
 
@@ -94,8 +92,11 @@ ADDABLE_PARAMETERS = {
     "ORGANIZER": frozenset({"CN", "EMAIL", "SCHEDULE-AGENT", "SCHEDULE-STATUS", "SCHEDULE-FORCE-SEND"}),
 }
 
+# The X- properties this library writes, which have features of their own (docs/x-properties.md).
+OWN_X_PROPERTIES = frozenset({X_TIME_ENTRY, X_TIMER_START})
+
 # Single date-time properties a server may store in UTC instead of with their TZID.
-INSTANTS = frozenset({"DTSTART", "DTEND", "DUE", "COMPLETED", "RECURRENCE-ID", X_PLANNED_START, X_PLANNED_END})
+INSTANTS = frozenset({"DTSTART", "DTEND", "DUE", "COMPLETED", "RECURRENCE-ID"})
 
 # Properties a server may add lines of without losing what was sent: the organizer as an attendee.
 ADDED_LINES_KEEP_ALL = frozenset({"ATTENDEE"})
@@ -197,7 +198,7 @@ def plan_losses(component: icalendar.Component, capabilities: Capabilities) -> l
         if feature is None:
             if (
                 name.startswith("X-")
-                and not name.startswith("X-PYCAL-")
+                and name not in OWN_X_PROPERTIES
                 and capabilities.level(Feature.PROPERTIES_PASSTHROUGH) is Support.UNSUPPORTED
             ):
                 changes.append((Loss(name, component[name], None), _drop(component, name)))

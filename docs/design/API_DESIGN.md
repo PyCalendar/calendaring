@@ -560,8 +560,7 @@ one value would drift apart. *Decided by the author, 2026-10-10* (in the
 
 What the item does add is what iCalendar has no property for: identity and
 backend state (above), `is_occurrence`, and on a task the native values of
-[§3.5](#35-native-passthrough) and the `X-PYCAL-*` fields of
-[§3.6](#36-properties-with-no-standard-home). There is one source of truth,
+[§3.5](#35-native-passthrough). There is one source of truth,
 so properties the library does not know about survive a round trip
 untouched (a conformance test proposed in [prior art Part 2](PRIOR_ART_AND_DECISIONS.md#part-2-standards)).
 
@@ -821,8 +820,6 @@ class Task(Item):                       # component is an icalendar.Todo
     native_status: str | None           # see "Native passthrough"; not in the iCalendar data
     native_priority: str | None         # likewise
     _native_basis: tuple[str | None, str | None]   # STATUS, PRIORITY the backend wrote with them; private
-    planned_start: datetime | None      # X-PYCAL-PLANNED-START (see "Properties with no standard home")
-    planned_end: datetime | None        # X-PYCAL-PLANNED-END
     # the time log: see "Time tracking" below, on every bound item
 
     def set_duration(self, duration: timedelta, keep: Literal["start", "due"] = "due") -> None: ...
@@ -839,9 +836,10 @@ because it changes two of them.
 Decisions in it, each from the survey:
 
 - **`DTSTART` means earliest sensible start.** That is RFC 10051's
-  reading (§5.1) and the first in the survey's table; the other senses the survey
-  found (planned start, expected completion) get their own properties instead
-  of overloading it. Actual start comes from the time log ([roadmap 1.6](ROADMAP.md#16-time-tracking-model-and-api)), not from a field.
+  reading (§5.1) and the first in the survey's table. Time planned for the
+  task is not a property of it: it is a `VEVENT` linked to the task through
+  `RELATED-TO`, as plann does, which every calendar client shows as an event,
+  while none reads a planned start or end on a `VTODO`. Actual start comes from the time log ([roadmap 1.6](ROADMAP.md#16-time-tracking-model-and-api)), not from a field.
 - **`duration` is derived, not stored.** On a task with a `DTSTART`, `DURATION` is
   either `DUE − DTSTART` or a misused estimate. `icalendar`'s `Todo.duration`
   reads `DUE − DTSTART` (or `DURATION` when only that is present, which
@@ -1077,10 +1075,11 @@ not `X-CALENDARING-`:
 - the package name may change (see the top of this document), and once
   written into users' calendars a prefix cannot.
 
-In this document: `X-PYCAL-PLANNED-START`, `X-PYCAL-PLANNED-END`, and from
-[roadmap 1.6](ROADMAP.md#16-time-tracking-model-and-api) `X-PYCAL-TIME-ENTRY` and `X-PYCAL-TIMER-START` ("Time tracking" above). Each gets a line in a
-registry table in the user documentation ([roadmap 4.1](ROADMAP.md#41-documentation-structure-and-api-reference)), with the standard property
-that would replace it if one appears.
+In this document: `X-PYCAL-TIME-ENTRY` and `X-PYCAL-TIMER-START`, from
+[roadmap 1.6](ROADMAP.md#16-time-tracking-model-and-api) ("Time tracking" above). Each has a line in the
+registry, [docs/x-properties.md](../x-properties.md), with the standard property
+that would replace it if one appears; it moves into the user documentation with [roadmap 4.1](ROADMAP.md#41-documentation-structure-and-api-reference).
+A property the library stops writing stays there, as retired.
 
 ### 3.7 Recurrence
 
@@ -1288,7 +1287,7 @@ initial set:
 | `task.uncomplete` | `uncomplete()` makes a completed task pending again; `UNSUPPORTED` where the server keeps it completed (GMX) |
 | `move` | [§2.3 Collection](#23-collection) |
 | `task.status`, `task.priority`, `task.percent-complete` | `LOSSY` when values are mapped |
-| `task.start`, `task.due`, `task.completed`, `task.planned`, `task.estimate` | |
+| `task.start`, `task.due`, `task.completed`, `task.estimate` | |
 | `task.relations.parent`, `task.relations.depends-on` | |
 | `categories`, `attendees` | for every component; on a task, attendees are its assignees |
 | `alarms` | `VALARM` components survive; `UNSUPPORTED` drops them; `LOSSY` sends them as they are, to come back rewritten, which `verify` lets pass (Ox makes a task's alarm trigger absolute and replaces its description) |
