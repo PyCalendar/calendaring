@@ -218,7 +218,6 @@ def test_time_entries_lose_their_users_where_the_server_refuses_participants() -
         ("save-load.todo.attendee", Feature.ATTENDEES),  # Ox: 500
         ("save-load.todo.recurrences", Feature.RECURRENCE),  # Ox: 400
         ("save-load.icalendar.x-property", Feature.PROPERTIES_PASSTHROUGH),  # Ox drops it from a task
-        ("save-load.icalendar.x-property", Feature.TASK_PLANNED),  # X-PYCAL-PLANNED-*
         ("save-load.icalendar.unknown-property", Feature.TASK_ESTIMATE),  # Ox, Zimbra: ESTIMATED-DURATION
     ],
 )
@@ -229,7 +228,7 @@ def test_what_a_task_list_cannot_store(hint: str, feature: Feature) -> None:
         {"save-load": {"support": "full"}, hint: {"support": "ungraceful", "behaviour": "dropped, in a task"}}
     )
     assert collection_capabilities(server, frozenset({Component.TASK})).level(feature) is Support.UNSUPPORTED
-    if feature in (Feature.TASK_PLANNED, Feature.TASK_ESTIMATE):  # nothing of an event's to lose
+    if feature is Feature.TASK_ESTIMATE:  # nothing of an event's to lose
         assert collection_capabilities(server, ALL).level(feature) is Support.UNSUPPORTED
     else:
         assert collection_capabilities(server, ALL).level(feature) is Support.FULL

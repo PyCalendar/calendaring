@@ -99,7 +99,6 @@ TRACKER = Profile(
         Feature.TASK_PERCENT_COMPLETE: U,
         Feature.TIME_LOG: {"level": U, "note": "holds no events to log time in; a tracker's own log is roadmap 2.5"},
         Feature.TASK_START: U,
-        Feature.TASK_PLANNED: U,
         Feature.TASK_ESTIMATE: U,
         Feature.TASK_RELATIONS_DEPENDS_ON: U,
     },

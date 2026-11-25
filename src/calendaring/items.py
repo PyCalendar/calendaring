@@ -21,10 +21,6 @@ __all__ = ["PRODID", "Event", "Item", "Journal", "Task", "TaskStatus", "split_st
 
 PRODID = "-//pycal.org//calendaring//EN"
 
-# Written by this library where iCalendar has no property (§3.6).
-X_PLANNED_START = "X-PYCAL-PLANNED-START"
-X_PLANNED_END = "X-PYCAL-PLANNED-END"
-
 
 class TaskStatus(StrEnum):
     """The vocabulary backends map ``STATUS`` to and from; values are the iCalendar strings."""
@@ -356,22 +352,6 @@ class Task(Item):
 
     native_status: str | None = None
     native_priority: str | None = None
-
-    @property
-    def planned_start(self) -> datetime | None:
-        return _decoded_datetime(self.component, X_PLANNED_START)
-
-    @planned_start.setter
-    def planned_start(self, value: datetime | None) -> None:
-        _set_datetime(self.component, X_PLANNED_START, value)
-
-    @property
-    def planned_end(self) -> datetime | None:
-        return _decoded_datetime(self.component, X_PLANNED_END)
-
-    @planned_end.setter
-    def planned_end(self, value: datetime | None) -> None:
-        _set_datetime(self.component, X_PLANNED_END, value)
 
     def set_duration(self, duration: timedelta, keep: Literal["start", "due"] = "due") -> None:
         """Set ``DUE - DTSTART`` by moving the end not kept, as caldav's ``set_duration(movable_attr=...)``."""

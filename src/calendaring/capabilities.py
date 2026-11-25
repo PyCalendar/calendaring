@@ -67,7 +67,6 @@ class Feature(StrEnum):
     TASK_COMPLETED = "task.completed"
     TASK_UNCOMPLETE = "task.uncomplete"
     TASK_COMPLETE_RECURRING = "task.complete-recurring"
-    TASK_PLANNED = "task.planned"
     TASK_ESTIMATE = "task.estimate"
     TASK_RELATIONS_PARENT = "task.relations.parent"
     TASK_RELATIONS_DEPENDS_ON = "task.relations.depends-on"

@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import icalendar
 import pytest
 
-from calendaring import Capabilities, Event, Feature, Support, Task, TaskStatus
+from calendaring import Capabilities, Event, Feature, Item, Support, Task, TaskStatus
 from calendaring._mapping import differences, plan_calendar_losses, plan_losses, undeclared
 from calendaring.memory import TRACKER
 
@@ -26,7 +26,7 @@ def with_alarm(event: Event) -> Event:
     return event
 
 
-def planned(event: Event, table: dict[Feature, Support]) -> tuple[list[str], icalendar.Component]:
+def planned(event: Item, table: dict[Feature, Support]) -> tuple[list[str], icalendar.Component]:
     component = copy.deepcopy(event.component)
     changes = plan_losses(component, Capabilities({**dict.fromkeys(Feature, Support.FULL), **table}))
     for _, apply in changes:
@@ -421,3 +421,14 @@ def test_an_rdate_occurrences_override_is_orphaned_unless_the_rrule_starts_one_t
     table = {**dict.fromkeys(Feature, Support.FULL), Feature.RECURRENCE_RDATE: Support.UNSUPPORTED}
     changes = plan_calendar_losses(calendar, Capabilities(table))
     assert [loss.property for loss, _ in changes] == (["RECURRENCE-ID"] if orphaned else [])
+
+
+def test_a_retired_x_pycal_property_is_lost_like_any_other_x_property() -> None:
+    """X-PYCAL-PLANNED-* is no longer the library's: a task written by v0.1.0
+    still carrying it loses it, visibly, where X- properties are dropped; the library's own are exempt."""
+    task = Task.new(summary="x")
+    task.component.add("X-PYCAL-PLANNED-START", datetime(2026, 11, 3, 9, tzinfo=UTC))
+    task.component.add("X-PYCAL-TIMER-START", datetime(2026, 11, 3, 9, tzinfo=UTC))
+    losses, component = planned(task, {Feature.PROPERTIES_PASSTHROUGH: Support.UNSUPPORTED})
+    assert losses == ["X-PYCAL-PLANNED-START"]
+    assert "X-PYCAL-TIMER-START" in component
