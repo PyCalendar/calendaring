@@ -1075,10 +1075,11 @@ not `X-CALENDARING-`:
 - the package name may change (see the top of this document), and once
   written into users' calendars a prefix cannot.
 
-In this document: from
-[roadmap 1.6](ROADMAP.md#16-time-tracking-model-and-api) `X-PYCAL-TIME-ENTRY` and `X-PYCAL-TIMER-START` ("Time tracking" above). Each gets a line in a
-registry table in the user documentation ([roadmap 4.1](ROADMAP.md#41-documentation-structure-and-api-reference)), with the standard property
-that would replace it if one appears.
+In this document: `X-PYCAL-TIME-ENTRY` and `X-PYCAL-TIMER-START`, from
+[roadmap 1.6](ROADMAP.md#16-time-tracking-model-and-api) ("Time tracking" above). Each has a line in the
+registry, [docs/x-properties.md](../x-properties.md), with the standard property
+that would replace it if one appears; it moves into the user documentation with [roadmap 4.1](ROADMAP.md#41-documentation-structure-and-api-reference).
+A property the library stops writing stays there, as retired.
 
 ### 3.7 Recurrence
 
